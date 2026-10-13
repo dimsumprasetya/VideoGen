@@ -8,6 +8,7 @@ Web UI lokal (Python stdlib saja, tanpa dependensi) untuk membuat klip YouTube S
 - `studio.vbs` — peluncur tersembunyi untuk `studio.pyw`. `stop.bat` — hentikan semua. `autostart-on.bat` / `autostart-off.bat` — tambah/hapus auto-start di folder Startup Windows. `run.bat` — jalan manual dengan console.
 - `buat-shortcut.bat` — buat shortcut "Seedance Studio" di Desktop.
 - `studio_config.json` — `comfy_cmd`, `comfy_cwd`, `comfy_ports` (8188 ComfyUI biasa, 8000 ComfyUI Desktop), `app_port`, dll.
+- `comfy_detect.py` — deteksi/resolusi perintah menyalakan ComfyUI (Desktop .exe, folder manual, paket portable). UI menampilkan panel setup bila ComfyUI belum tersambung; pilihan disimpan ke `studio_config.json` dan supervisor membacanya ulang tiap 5 dtk.
 - `workflows/` — workflow custom (format **API**, bukan UI). Placeholder `{{PROMPT}} {{SEED}} {{DURATION}} {{ASPECT}} {{RESOLUTION}} {{IMAGE}}`, plus heuristik nama input (`prompt`, `seed`, `duration`, `aspect_ratio`, `resolution`, `generate_audio`, termasuk dynamic combo seperti `model.prompt`).
 
 ## Catatan penting

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Seedance Shorts Studio: web UI lokal -> ComfyUI -> node API Seedance (Text-to-Video).
 Hanya pustaka standar Python."""
+import comfy_detect
 import json, os, random, re, shutil, subprocess, sys, threading, time, uuid
 import urllib.error, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -25,6 +26,19 @@ RESOLUTIONS = ["480p", "720p", "1080p"]
 
 JOBS = {}          # id -> dict
 LOCK = threading.Lock()
+
+
+def save_cfg(**kw):
+    path = os.path.join(BASE, "studio_config.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            cur = json.load(f)
+    except (OSError, ValueError):
+        cur = {}
+    cur.update(kw)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(cur, f, indent=2, ensure_ascii=False)
+    CFG.update(kw)
 
 
 def load_cfg():
@@ -251,6 +265,9 @@ class H(BaseHTTPRequestHandler):
                             "workflows": wfs})
         elif u.path == "/api/status":
             self.send_json({"comfy": bool(comfy_url()), "ffmpeg": bool(shutil.which("ffmpeg"))})
+        elif u.path == "/api/comfy/detect":
+            cmd, cwd = comfy_detect.detect(CFG)
+            self.send_json({"found": bool(cmd), "cmd": cmd or "", "cwd": cwd or ""})
         elif u.path == "/api/jobs":
             with LOCK:
                 jobs = sorted(JOBS.values(), key=lambda j: j["created"], reverse=True)
@@ -307,6 +324,15 @@ class H(BaseHTTPRequestHandler):
                     JOBS[job["id"]] = job
                 threading.Thread(target=run_job, args=(job,), daemon=True).start()
                 self.send_json(job)
+            elif self.path == "/api/comfy/save":
+                r = comfy_detect.resolve(d.get("path", "")) if d.get("path") else None
+                if not r:
+                    cmd, cwd = comfy_detect.detect({})
+                    r = (cmd, cwd) if cmd else None
+                if not r:
+                    raise RuntimeError("ComfyUI tidak ditemukan di lokasi itu. Pilih ComfyUI.exe atau folder yang berisi main.py.")
+                save_cfg(comfy_cmd=r[0], comfy_cwd=r[1] or "")
+                self.send_json({"cmd": r[0], "cwd": r[1] or ""})
             elif self.path == "/api/merge":
                 name = merge(d.get("files", []))
                 job = {"id": uuid.uuid4().hex, "params": {"prompt": "Gabungan %d klip" % len(d["files"])},
@@ -358,6 +384,10 @@ footer{border-top:1px solid var(--line);background:var(--panel);display:flex;gap
 </style></head><body>
 <aside>
 <h1>Seedance Studio <span id="st" class="chip">ComfyUI…</span></h1>
+<div id="setup" style="display:none;background:#2a1d12;border:1px solid #5a3a1a;border-radius:8px;padding:10px;margin-bottom:8px">
+<b>ComfyUI belum tersambung</b><div style="color:var(--mut);font-size:12px;margin:4px 0">Klik cari otomatis, atau tempel lokasi ComfyUI.exe / folder ComfyUI.</div>
+<input id="cpath" placeholder="Lokasi ComfyUI.exe atau folder ComfyUI" style="width:100%;background:#0e0f12;color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:8px;font:inherit">
+<button id="cfind" style="margin-top:8px">Cari &amp; sambungkan</button><div id="cmsg" style="font-size:12px;margin-top:6px;color:var(--mut)"></div></div>
 <label>Prompt</label><textarea id="prompt" placeholder="Seekor kucing oranye berlari di atap kota saat senja, kamera mengikuti, sinematik"></textarea>
 <label>Model</label><select id="model"></select>
 <div class="row"><div><label>Aspek</label><select id="aspect"></select></div><div><label>Resolusi</label><select id="res"></select></div></div>
@@ -382,7 +412,9 @@ $("aspect").innerHTML=cfg.aspects.map(a=>`<option>${a}</option>`).join("");
 $("res").innerHTML=cfg.resolutions.map(a=>`<option ${a=="720p"?"selected":""}>${a}</option>`).join("");
 cfg.workflows.forEach(w=>$("wf").insertAdjacentHTML("beforeend",`<option>${w}</option>`));
 $("model").onchange=$("dur").oninput=sync;sync();poll();setInterval(poll,2000);status();setInterval(status,5000)}
-async function status(){try{const s=await api("/api/status");$("st").textContent=s.comfy?"ComfyUI aktif":"ComfyUI mati";$("st").className="chip"+(s.comfy?" ok":"");$("merge").dataset.ff=s.ffmpeg?1:""}catch(e){}}
+async function status(){try{const s=await api("/api/status");$("st").textContent=s.comfy?"ComfyUI aktif":"ComfyUI mati";$("st").className="chip"+(s.comfy?" ok":"");$("setup").style.display=s.comfy?"none":"block";$("merge").dataset.ff=s.ffmpeg?1:""}catch(e){}}
+$("cfind").onclick=async()=>{$("cmsg").textContent="Mencari…";const r=await api("/api/comfy/save",{path:$("cpath").value});
+$("cmsg").textContent=r.error?r.error:"Tersimpan. Menyalakan ComfyUI, tunggu sebentar…"};
 $("go").onclick=async()=>{const r=await api("/api/generate",{prompt:$("prompt").value,model:$("model").value,aspect:$("aspect").value,resolution:$("res").value,duration:+$("dur").value,seed:+$("seed").value,audio:$("aud").checked,camera_fixed:$("cam").checked,workflow:$("wf").value});if(r.error)alert(r.error);else poll()};
 function play(f){cur=f;$("v").src="/outputs/"+f;$("v").style.display="block";$("msg").style.display="none";$("v").play().catch(()=>{});render(last)}
 let last=[];

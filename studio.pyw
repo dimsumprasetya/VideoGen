@@ -4,6 +4,8 @@ import json, os, shutil, socket, subprocess, sys, time, urllib.request
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 os.chdir(BASE)
+sys.path.insert(0, BASE)
+import comfy_detect
 NOWIN = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 LOG = os.path.join(BASE, "studio.log")
 PIDS = os.path.join(BASE, "studio.pids")
@@ -32,24 +34,6 @@ def comfy_alive(c):
         except Exception:
             pass
     return False
-
-
-def comfy_command(c):
-    """Perintah menyalakan ComfyUI: dari config, atau deteksi otomatis."""
-    if c["comfy_cmd"]:
-        return c["comfy_cmd"], (c["comfy_cwd"] or None)
-    local = os.environ.get("LOCALAPPDATA", "")
-    for exe in (os.path.join(local, "Programs", "ComfyUI", "ComfyUI.exe"),
-                os.path.join(local, "Programs", "@comfyorgcomfyui-electron", "ComfyUI.exe")):
-        if os.path.exists(exe):
-            return '"%s"' % exe, None
-    for d in (c["comfy_cwd"], os.path.join(os.path.expanduser("~"), "ComfyUI"),
-              os.path.join(os.path.expanduser("~"), "Documents", "ComfyUI"), "C:\\ComfyUI"):
-        if d and os.path.exists(os.path.join(d, "main.py")):
-            py = os.path.join(d, "venv", "Scripts", "python.exe")
-            py = py if os.path.exists(py) else sys.executable.replace("pythonw", "python")
-            return '"%s" main.py' % py, d
-    return None, None
 
 
 def stop():
@@ -97,8 +81,9 @@ def main():
     opened = False
     try:
         while True:
+            c = cfg()  # baca ulang: pengaturan dari UI langsung berlaku
             if not comfy_alive(c) and (comfy is None or comfy.poll() is not None):
-                cmd, cwd = comfy_command(c)
+                cmd, cwd = comfy_detect.detect(c)
                 if cmd:
                     log("start comfy: " + cmd)
                     comfy = subprocess.Popen(cmd, cwd=cwd, shell=True, creationflags=NOWIN,

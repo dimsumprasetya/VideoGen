@@ -64,15 +64,32 @@ def http_json(url, data=None, timeout=15):
         return json.loads(r.read().decode())
 
 
+_EXTRA = {"t": 0.0, "ports": []}
+
+
+def _alive(port):
+    u = "http://127.0.0.1:%d" % port
+    try:
+        http_json(u + "/system_stats", timeout=2)
+        return u
+    except Exception:
+        return None
+
+
 def comfy_url():
-    """Kembalikan URL ComfyUI yang hidup, atau None."""
+    """URL ComfyUI yang hidup, atau None. Cadangan: cari port dari proses ComfyUI yang sedang jalan
+    (mis. dinyalakan aplikasi lain)."""
     for p in CFG["comfy_ports"]:
-        u = "http://127.0.0.1:%d" % p
-        try:
-            http_json(u + "/system_stats", timeout=2)
+        u = _alive(p)
+        if u:
             return u
-        except Exception:
-            continue
+    if time.time() - _EXTRA["t"] > 15:
+        _EXTRA["t"] = time.time()
+        _EXTRA["ports"] = [r["port"] for r in comfy_detect.running_comfy()]
+    for p in _EXTRA["ports"]:
+        u = _alive(p)
+        if u:
+            return u
     return None
 
 
@@ -325,6 +342,13 @@ class H(BaseHTTPRequestHandler):
                 threading.Thread(target=run_job, args=(job,), daemon=True).start()
                 self.send_json(job)
             elif self.path == "/api/comfy/save":
+                m = re.match(r"^(?:https?://)?(?:127\.0\.0\.1|localhost)?:?(\d{2,5})/?$", (d.get("path") or "").strip())
+                if m:  # user memasukkan port / URL ComfyUI yang sudah jalan
+                    port = int(m.group(1))
+                    if not _alive(port):
+                        raise RuntimeError("Tidak ada ComfyUI di port %d." % port)
+                    save_cfg(comfy_ports=[port] + [x for x in CFG["comfy_ports"] if x != port])
+                    return self.send_json({"cmd": "port %d" % port, "cwd": ""})
                 r = comfy_detect.resolve(d.get("path", "")) if d.get("path") else None
                 if not r:
                     cmd, cwd = comfy_detect.detect({})
@@ -385,7 +409,7 @@ footer{border-top:1px solid var(--line);background:var(--panel);display:flex;gap
 <aside>
 <h1>Seedance Studio <span id="st" class="chip">ComfyUI…</span></h1>
 <div id="setup" style="display:none;background:#2a1d12;border:1px solid #5a3a1a;border-radius:8px;padding:10px;margin-bottom:8px">
-<b>ComfyUI belum tersambung</b><div style="color:var(--mut);font-size:12px;margin:4px 0">Klik cari otomatis, atau tempel lokasi ComfyUI.exe / folder ComfyUI.</div>
+<b>ComfyUI belum tersambung</b><div style="color:var(--mut);font-size:12px;margin:4px 0">Klik cari otomatis, atau tempel lokasi ComfyUI.exe / folder ComfyUI / port (mis. 8000) bila ComfyUI sudah jalan.</div>
 <input id="cpath" placeholder="Lokasi ComfyUI.exe atau folder ComfyUI" style="width:100%;background:#0e0f12;color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:8px;font:inherit">
 <button id="cfind" style="margin-top:8px">Cari &amp; sambungkan</button><div id="cmsg" style="font-size:12px;margin-top:6px;color:var(--mut)"></div></div>
 <label>Prompt</label><textarea id="prompt" placeholder="Seekor kucing oranye berlari di atap kota saat senja, kamera mengikuti, sinematik"></textarea>

@@ -66,3 +66,28 @@ def detect(cfg=None):
         if r:
             return r
     return None, None
+
+
+_PS = (
+    "$p = Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'comfy' -or $_.CommandLine -match 'comfy' };"
+    "foreach ($x in $p) { $c = Get-NetTCPConnection -State Listen -OwningProcess $x.ProcessId -ErrorAction SilentlyContinue;"
+    "foreach ($k in $c) { \"$($x.ProcessId)|$($k.LocalPort)|$($x.ExecutablePath)|$($x.CommandLine)\" } }"
+)
+
+
+def running_comfy():
+    """Windows: proses ComfyUI yang sedang jalan (siapa pun yang menyalakan) -> [{pid, port, exe, cmd}]."""
+    if os.name != "nt":
+        return []
+    import subprocess
+    try:
+        out = subprocess.run(["powershell", "-NoProfile", "-Command", _PS], capture_output=True,
+                             text=True, timeout=20, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
+    except Exception:
+        return []
+    res = []
+    for line in out.splitlines():
+        parts = line.split("|", 3)
+        if len(parts) == 4 and parts[1].isdigit():
+            res.append({"pid": parts[0], "port": int(parts[1]), "exe": parts[2], "cmd": parts[3]})
+    return res

@@ -2,6 +2,7 @@
 import os, shutil, sys
 
 HOME = os.path.expanduser("~")
+FLAGS = " --listen 127.0.0.1 --port 8188 --disable-auto-launch"  # sama seperti peluncur Luminar
 
 
 def _py_in(d):
@@ -33,14 +34,13 @@ def resolve(path):
     inner = os.path.join(path, "ComfyUI")
     if os.path.isfile(os.path.join(inner, "main.py")):          # paket portable
         py = _py_in(path)
-        extra = " --windows-standalone-build" if "python_embeded" in py else ""
-        return '"%s" -s "%s"%s' % (py, os.path.join("ComfyUI", "main.py"), extra), path
+        return '"%s" -s "%s"%s' % (py, os.path.join("ComfyUI", "main.py"), FLAGS), path
     if os.path.isfile(os.path.join(path, "main.py")):           # instalasi manual
         py = _py_in(path)
         parent = os.path.dirname(path.rstrip("\\/"))
         if "python_embeded" in py and os.path.dirname(os.path.dirname(py)) == parent:  # path = folder dalam paket portable
-            return '"%s" -s "%s" --windows-standalone-build' % (py, os.path.join("ComfyUI", "main.py")), parent
-        return '"%s" main.py' % py, path
+            return '"%s" -s "%s"%s' % (py, os.path.join("ComfyUI", "main.py"), FLAGS), parent
+        return '"%s" main.py%s' % (py, FLAGS), path
     for exe in ("ComfyUI.exe",):
         p = os.path.join(path, exe)
         if os.path.isfile(p):
@@ -53,13 +53,14 @@ def candidates(cfg=None):
     c = []
     if cfg and (cfg.get("comfy_cwd") or ""):
         c.append(cfg["comfy_cwd"])
-    c += [os.path.join(local, "Programs", "ComfyUI"),
+    c += ["C:\\AI\\ComfyUI_windows_portable", "D:\\AI\\ComfyUI_windows_portable",
+          os.path.join(local, "Programs", "ComfyUI"),
           os.path.join(local, "Programs", "@comfyorgcomfyui-electron"),
           os.path.join(HOME, "ComfyUI"), os.path.join(HOME, "Documents", "ComfyUI"),
           os.path.join(HOME, "Desktop", "ComfyUI"), os.path.join(HOME, "Downloads", "ComfyUI"),
           "C:\\ComfyUI", "D:\\ComfyUI"]
     for root in (HOME, os.path.join(HOME, "Desktop"), os.path.join(HOME, "Downloads"),
-                 os.path.join(HOME, "Documents"), "C:\\", "D:\\"):
+                 os.path.join(HOME, "Documents"), "C:\\", "D:\\", "C:\\AI", "D:\\AI"):
         try:
             for n in os.listdir(root):
                 if n.lower().startswith("comfyui") and os.path.isdir(os.path.join(root, n)):

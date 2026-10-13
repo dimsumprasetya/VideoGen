@@ -1,8 +1,8 @@
 {
   "app_port": 7860,
   "comfy_ports": [8188, 8000],
-  "comfy_cmd": "",
-  "comfy_cwd": "",
+  "comfy_cmd": "\"C:\\AI\\ComfyUI_windows_portable\\python_embeded\\python.exe\" -s ComfyUI\\main.py --listen 127.0.0.1 --port 8188 --disable-auto-launch",
+  "comfy_cwd": "C:\\AI\\ComfyUI_windows_portable",
   "open_window": true,
   "poll_seconds": 3,
   "job_timeout_seconds": 1500

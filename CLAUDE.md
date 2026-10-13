@@ -9,6 +9,7 @@ Web UI lokal (Python stdlib saja, tanpa dependensi) untuk membuat klip YouTube S
 - `buat-shortcut.bat` — buat shortcut "Seedance Studio" di Desktop.
 - `studio_config.json` — `comfy_cmd`, `comfy_cwd`, `comfy_ports` (8188 ComfyUI biasa, 8000 ComfyUI Desktop), `app_port`, dll.
 - `comfy_detect.py` — deteksi/resolusi perintah menyalakan ComfyUI (Desktop .exe, folder manual, paket portable). UI menampilkan panel setup bila ComfyUI belum tersambung; pilihan disimpan ke `studio_config.json` dan supervisor membacanya ulang tiap 5 dtk.
+- ComfyUI pemilik: portable di `C:\AI\ComfyUI_windows_portable` (python_embeded, port 8188, tanpa autentikasi), juga dipakai Luminar Studio (`C:\AI\relight-studio`, backend :8001). Start: `python_embeded\python.exe -s ComfyUI\main.py --listen 127.0.0.1 --port 8188 --disable-auto-launch` dengan cwd folder portable; sudah diisi di `studio_config.json`. Antrean ComfyUI serial (VRAM 8 GB); node Seedance berjalan di cloud.
 - Menumpang ComfyUI yang sudah jalan (mis. dinyalakan aplikasi lain): `comfy_url()` mencari port dari proses ComfyUI (PowerShell) bila 8188/8000 mati; panel setup juga menerima port. `cek-comfy.bat` menampilkan proses+port ComfyUI.
 - `workflows/` — workflow custom (format **API**, bukan UI). Placeholder `{{PROMPT}} {{SEED}} {{DURATION}} {{ASPECT}} {{RESOLUTION}} {{IMAGE}}`, plus heuristik nama input (`prompt`, `seed`, `duration`, `aspect_ratio`, `resolution`, `generate_audio`, termasuk dynamic combo seperti `model.prompt`).
 

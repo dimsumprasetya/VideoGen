@@ -1,0 +1,4 @@
+outputs/
+studio.log
+studio.pids
+__pycache__/

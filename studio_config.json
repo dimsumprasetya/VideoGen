@@ -1,0 +1,9 @@
+{
+  "app_port": 7860,
+  "comfy_ports": [8188, 8000],
+  "comfy_cmd": "",
+  "comfy_cwd": "",
+  "open_window": true,
+  "poll_seconds": 3,
+  "job_timeout_seconds": 1500
+}

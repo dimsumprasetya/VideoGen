@@ -6,6 +6,7 @@ Web UI lokal (Python stdlib saja, tanpa dependensi) untuk membuat klip YouTube S
 - `app.py` — server HTTP (port 7860) + UI satu halaman (HTML ada di variabel `HTML`). Mengirim workflow API-format ke ComfyUI (`/prompt`), polling `/history`, mengunduh video ke `outputs/`, menggabungkan klip dengan ffmpeg.
 - `studio.pyw` — supervisor latar belakang: menyalakan ComfyUI (deteksi otomatis atau `comfy_cmd`) + `app.py` tanpa jendela, restart otomatis, membuka jendela `--app` Edge/Chrome. Satu instance lewat lock socket di `app_port + 1`. Menulis `studio.pids` dan `studio.log`.
 - `studio.vbs` — peluncur tersembunyi untuk `studio.pyw`. `stop.bat` — hentikan semua. `autostart-on.bat` / `autostart-off.bat` — tambah/hapus auto-start di folder Startup Windows. `run.bat` — jalan manual dengan console.
+- `buat-shortcut.bat` — buat shortcut "Seedance Studio" di Desktop.
 - `studio_config.json` — `comfy_cmd`, `comfy_cwd`, `comfy_ports` (8188 ComfyUI biasa, 8000 ComfyUI Desktop), `app_port`, dll.
 - `workflows/` — workflow custom (format **API**, bukan UI). Placeholder `{{PROMPT}} {{SEED}} {{DURATION}} {{ASPECT}} {{RESOLUTION}} {{IMAGE}}`, plus heuristik nama input (`prompt`, `seed`, `duration`, `aspect_ratio`, `resolution`, `generate_audio`, termasuk dynamic combo seperti `model.prompt`).
 

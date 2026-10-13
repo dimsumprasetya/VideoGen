@@ -5,12 +5,20 @@ HOME = os.path.expanduser("~")
 
 
 def _py_in(d):
+    for base in (d, os.path.dirname(d.rstrip("\\/")), os.path.dirname(os.path.dirname(d.rstrip("\\/")))):
+        p = _py_in1(base)
+        if p:
+            return p
+    return shutil.which("python") or shutil.which("python3") or sys.executable
+
+
+def _py_in1(d):
     for rel in (("python_embeded", "python.exe"), ("venv", "Scripts", "python.exe"),
                 (".venv", "Scripts", "python.exe"), ("venv", "bin", "python"), (".venv", "bin", "python")):
         p = os.path.join(d, *rel)
         if os.path.exists(p):
             return p
-    return shutil.which("python") or shutil.which("python3") or sys.executable
+    return None
 
 
 def resolve(path):
@@ -28,7 +36,11 @@ def resolve(path):
         extra = " --windows-standalone-build" if "python_embeded" in py else ""
         return '"%s" -s "%s"%s' % (py, os.path.join("ComfyUI", "main.py"), extra), path
     if os.path.isfile(os.path.join(path, "main.py")):           # instalasi manual
-        return '"%s" main.py' % _py_in(path), path
+        py = _py_in(path)
+        parent = os.path.dirname(path.rstrip("\\/"))
+        if "python_embeded" in py and os.path.dirname(os.path.dirname(py)) == parent:  # path = folder dalam paket portable
+            return '"%s" -s "%s" --windows-standalone-build' % (py, os.path.join("ComfyUI", "main.py")), parent
+        return '"%s" main.py' % py, path
     for exe in ("ComfyUI.exe",):
         p = os.path.join(path, exe)
         if os.path.isfile(p):
@@ -65,6 +77,17 @@ def detect(cfg=None):
         r = resolve(d)
         if r:
             return r
+    for proc in running_comfy():  # ComfyUI sedang jalan (mis. dari aplikasi lain): tiru cara menyalakannya
+        for start in (proc["exe"], proc["cmd"].split('"')[-1] if "main.py" in proc["cmd"] else ""):
+            d = os.path.dirname(start) if start else ""
+            for _ in range(4):
+                r = resolve(d) if d else None
+                if r:
+                    return r
+                nd = os.path.dirname(d)
+                if nd == d:
+                    break
+                d = nd
     return None, None
 
 

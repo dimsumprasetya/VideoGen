@@ -293,7 +293,13 @@ class H(BaseHTTPRequestHandler):
             self.send_json({"models": MODELS, "aspects": ASPECTS, "resolutions": RESOLUTIONS,
                             "workflows": wfs})
         elif u.path == "/api/status":
-            self.send_json({"comfy": bool(comfy_url()), "ffmpeg": bool(shutil.which("ffmpeg"))})
+            log = ""
+            try:
+                with open(os.path.join(BASE, "studio.log"), encoding="utf-8", errors="replace") as f:
+                    log = "\n".join(f.read().splitlines()[-4:])
+            except OSError:
+                pass
+            self.send_json({"comfy": bool(comfy_url()), "ffmpeg": bool(shutil.which("ffmpeg")), "log": log})
         elif u.path == "/api/comfy/detect":
             cmd, cwd = comfy_detect.detect(CFG)
             self.send_json({"found": bool(cmd), "cmd": cmd or "", "cwd": cwd or ""})
@@ -423,7 +429,7 @@ footer{border-top:1px solid var(--line);background:var(--panel);display:flex;gap
 <div id="setup" style="display:none;background:#2a1d12;border:1px solid #5a3a1a;border-radius:8px;padding:10px;margin-bottom:8px">
 <b>ComfyUI belum tersambung</b><div style="color:var(--mut);font-size:12px;margin:4px 0">Klik cari otomatis, atau tempel lokasi ComfyUI.exe / folder ComfyUI / port (mis. 8000) bila ComfyUI sudah jalan.</div>
 <input id="cpath" placeholder="Lokasi ComfyUI.exe atau folder ComfyUI" style="width:100%;background:#0e0f12;color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:8px;font:inherit">
-<button id="cfind" style="margin-top:8px">Cari &amp; sambungkan</button><div id="cmsg" style="font-size:12px;margin-top:6px;color:var(--mut)"></div></div>
+<button id="cfind" style="margin-top:8px">Cari &amp; sambungkan</button><div id="cmsg" style="font-size:12px;margin-top:6px;color:var(--mut)"></div><pre id="clog" style="font-size:11px;color:var(--mut);white-space:pre-wrap;margin:6px 0 0"></pre></div>
 <label>Prompt</label><textarea id="prompt" placeholder="Seekor kucing oranye berlari di atap kota saat senja, kamera mengikuti, sinematik"></textarea>
 <label>Model</label><select id="model"></select>
 <div class="row"><div><label>Aspek</label><select id="aspect"></select></div><div><label>Resolusi</label><select id="res"></select></div></div>
@@ -448,7 +454,7 @@ $("aspect").innerHTML=cfg.aspects.map(a=>`<option>${a}</option>`).join("");
 $("res").innerHTML=cfg.resolutions.map(a=>`<option ${a=="720p"?"selected":""}>${a}</option>`).join("");
 cfg.workflows.forEach(w=>$("wf").insertAdjacentHTML("beforeend",`<option>${w}</option>`));
 $("model").onchange=$("dur").oninput=sync;sync();poll();setInterval(poll,2000);status();setInterval(status,5000)}
-async function status(){try{const s=await api("/api/status");$("st").textContent=s.comfy?"ComfyUI aktif":"ComfyUI mati";$("st").className="chip"+(s.comfy?" ok":"");$("setup").style.display=s.comfy?"none":"block";$("merge").dataset.ff=s.ffmpeg?1:""}catch(e){}}
+async function status(){try{const s=await api("/api/status");$("st").textContent=s.comfy?"ComfyUI aktif":"ComfyUI mati";$("st").className="chip"+(s.comfy?" ok":"");$("setup").style.display=s.comfy?"none":"block";$("clog").textContent=s.log||"";$("merge").dataset.ff=s.ffmpeg?1:""}catch(e){}}
 $("cfind").onclick=async()=>{$("cmsg").textContent="Mencari…";const r=await api("/api/comfy/save",{path:$("cpath").value});
 $("cmsg").textContent=r.error?r.error:"Tersimpan. Menyalakan ComfyUI, tunggu sebentar…"};
 $("go").onclick=async()=>{const r=await api("/api/generate",{prompt:$("prompt").value,model:$("model").value,aspect:$("aspect").value,resolution:$("res").value,duration:+$("dur").value,seed:+$("seed").value,audio:$("aud").checked,camera_fixed:$("cam").checked,workflow:$("wf").value});if(r.error)alert(r.error);else poll()};

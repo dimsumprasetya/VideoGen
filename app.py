@@ -79,6 +79,13 @@ def _alive(port):
 def comfy_url():
     """URL ComfyUI yang hidup, atau None. Cadangan: cari port dari proses ComfyUI yang sedang jalan
     (mis. dinyalakan aplikasi lain)."""
+    env = os.environ.get("COMFYUI_URL", "").rstrip("/")  # sama seperti backend Luminar
+    if env:
+        try:
+            http_json(env + "/system_stats", timeout=2)
+            return env
+        except Exception:
+            pass
     for p in CFG["comfy_ports"]:
         u = _alive(p)
         if u:
@@ -183,7 +190,12 @@ def run_job(job):
                 job["status"] = "done"
                 save_meta(job)
                 return
-        raise RuntimeError("Timeout menunggu hasil dari Seedance.")
+        try:  # batalkan job macet supaya antrian ComfyUI tidak tersumbat
+            http_json(base + "/queue", {"delete": [pid]}, timeout=10)
+            http_json(base + "/interrupt", {}, timeout=10)
+        except Exception:
+            pass
+        raise RuntimeError("Timeout menunggu hasil dari Seedance (job dibatalkan).")
     except Exception as e:
         job["status"] = "error"
         job["error"] = str(e)

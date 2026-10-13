@@ -1,3 +1,5 @@
 @echo off
 cd /d "%~dp0"
-python studio.pyw --stop
+call findpy.bat
+if not defined PY (pause & exit /b 1)
+"%PY%" studio.pyw --stop

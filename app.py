@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Seedance Shorts Studio: web UI lokal -> ComfyUI -> node API Seedance (Text-to-Video).
 Hanya pustaka standar Python."""
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # python_embeded tidak otomatis memuat folder script
 import comfy_detect
 import json, os, random, re, shutil, subprocess, sys, threading, time, uuid
 import urllib.error, urllib.request

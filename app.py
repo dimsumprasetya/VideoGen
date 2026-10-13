@@ -102,7 +102,67 @@ def comfy_url():
     return None
 
 
-def build_graph(p):
+KEY_FILE = os.path.join(BASE, "api_key.txt")
+NODE = "ByteDanceTextToVideoNode"
+_SPEC = {"t": 0.0, "base": "", "spec": None}
+
+
+def api_key():
+    k = os.environ.get("COMFY_API_KEY", "").strip()
+    if not k:
+        try:
+            with open(KEY_FILE, encoding="utf-8") as f:
+                k = f.read().strip()
+        except OSError:
+            pass
+    return k
+
+
+def _combo(spec):
+    if isinstance(spec, list) and spec:
+        if isinstance(spec[0], list):
+            return spec[0]
+        if spec[0] == "COMBO" and len(spec) > 1 and isinstance(spec[1], dict):
+            return spec[1].get("options")
+    return None
+
+
+def node_spec(base):
+    """Input node Seedance menurut ComfyUI yang terpasang: {"names": set, "combos": {nama: [opsi]}} atau None."""
+    if not base:
+        return None
+    if _SPEC["base"] == base and _SPEC["spec"] and time.time() - _SPEC["t"] < 300:
+        return _SPEC["spec"]
+    try:
+        info = http_json(base + "/object_info/" + NODE, timeout=10).get(NODE)
+    except Exception:
+        info = None
+    if not info:
+        return None
+    names, combos = set(), {}
+    for group in ("required", "optional"):
+        for name, spec in (info.get("input", {}).get(group) or {}).items():
+            names.add(name)
+            opts = _combo(spec)
+            if opts:
+                combos[name] = opts
+    spec = {"names": names, "combos": combos}
+    _SPEC.update(t=time.time(), base=base, spec=spec)
+    return spec
+
+
+def model_list(spec):
+    if not spec or not spec["combos"].get("model"):
+        return MODELS
+    known = {m["id"]: m for m in MODELS}
+    out = []
+    for mid in spec["combos"]["model"]:
+        new = "1-5" in mid or "1.5" in mid
+        out.append(known.get(mid) or {"id": mid, "label": mid, "min_dur": 4 if new else 3, "audio": new})
+    return out
+
+
+def build_graph(p, spec=None):
     """Workflow bawaan Text-to-Video Seedance (format API)."""
     inputs = {
         "model": p["model"], "prompt": p["prompt"], "resolution": p["resolution"],
@@ -111,6 +171,11 @@ def build_graph(p):
     }
     if p.get("audio") and next((m for m in MODELS if m["id"] == p["model"]), {}).get("audio"):
         inputs["generate_audio"] = True
+    if spec:  # kirim hanya input yang memang dimiliki node di ComfyUI ini
+        models = spec["combos"].get("model")
+        if models and p["model"] not in models:
+            raise RuntimeError("Model %s tidak ada di ComfyUI ini. Pilihan: %s" % (p["model"], ", ".join(models)))
+        inputs = {k: v for k, v in inputs.items() if k in spec["names"]}
     return {
         "1": {"class_type": "ByteDanceTextToVideoNode", "inputs": inputs},
         "2": {"class_type": "SaveVideo", "inputs": {
@@ -148,10 +213,13 @@ def run_job(job):
         if not base:
             raise RuntimeError("ComfyUI belum menyala. Tunggu sebentar atau cek studio.log.")
         p = job["params"]
-        graph = custom_graph(p["workflow"], p) if p.get("workflow") else build_graph(p)
+        graph = custom_graph(p["workflow"], p) if p.get("workflow") else build_graph(p, node_spec(base))
         job["status"] = "queued"
         try:
-            res = http_json(base + "/prompt", {"prompt": graph, "client_id": job["id"]}, timeout=30)
+            body = {"prompt": graph, "client_id": job["id"]}
+            if api_key():  # node API berbayar butuh API key akun Comfy bila dipanggil tanpa UI ComfyUI
+                body["extra_data"] = {"api_key_comfy_org": api_key()}
+            res = http_json(base + "/prompt", body, timeout=30)
         except urllib.error.HTTPError as e:
             body = e.read().decode(errors="replace")
             try:
@@ -199,8 +267,14 @@ def run_job(job):
             pass
         raise RuntimeError("Timeout menunggu hasil dari Seedance (job dibatalkan).")
     except Exception as e:
+        msg = str(e)
+        low = msg.lower()
+        if any(w in low for w in ("unauthorized", "login", "api key", "401", "authenticat")):
+            msg += " -> Isi API key akun Comfy di bagian Pengaturan (buat di platform.comfy.org)."
+        elif "credit" in low or "balance" in low or "402" in low:
+            msg += " -> Kredit akun Comfy habis/kurang."
         job["status"] = "error"
-        job["error"] = str(e)
+        job["error"] = msg
 
 
 def save_meta(job):
@@ -236,8 +310,8 @@ def clean_params(d):
         seed = random.randint(0, 2**31 - 1)
     return {
         "prompt": prompt, "model": model, "duration": dur, "seed": seed,
-        "aspect": d.get("aspect") if d.get("aspect") in ASPECTS else "9:16",
-        "resolution": d.get("resolution") if d.get("resolution") in RESOLUTIONS else "720p",
+        "aspect": str(d.get("aspect") or "9:16")[:20],          # opsi sebenarnya divalidasi ComfyUI
+        "resolution": str(d.get("resolution") or "720p")[:20],
         "audio": bool(d.get("audio")), "camera_fixed": bool(d.get("camera_fixed")),
         "workflow": os.path.basename(d["workflow"]) if d.get("workflow") else "",
     }
@@ -292,7 +366,10 @@ class H(BaseHTTPRequestHandler):
             self.wfile.write(b)
         elif u.path == "/api/config":
             wfs = sorted(f for f in os.listdir(WF) if f.endswith(".json")) if os.path.isdir(WF) else []
-            self.send_json({"models": MODELS, "aspects": ASPECTS, "resolutions": RESOLUTIONS,
+            spec = node_spec(comfy_url())
+            cb = spec["combos"] if spec else {}
+            self.send_json({"models": model_list(spec), "aspects": cb.get("aspect_ratio") or ASPECTS,
+                            "resolutions": cb.get("resolution") or RESOLUTIONS, "live": bool(spec),
                             "workflows": wfs})
         elif u.path == "/api/status":
             log = ""
@@ -301,7 +378,8 @@ class H(BaseHTTPRequestHandler):
                     log = "\n".join(f.read().splitlines()[-4:])
             except OSError:
                 pass
-            self.send_json({"comfy": bool(comfy_url()), "ffmpeg": bool(shutil.which("ffmpeg")), "log": log})
+            self.send_json({"comfy": bool(comfy_url()), "ffmpeg": bool(shutil.which("ffmpeg")), "log": log,
+                            "has_key": bool(api_key())})
         elif u.path == "/api/comfy/detect":
             cmd, cwd = comfy_detect.detect(CFG)
             self.send_json({"found": bool(cmd), "cmd": cmd or "", "cwd": cwd or ""})
@@ -377,6 +455,14 @@ class H(BaseHTTPRequestHandler):
                     raise RuntimeError("ComfyUI tidak ditemukan di lokasi itu. Pilih ComfyUI.exe atau folder yang berisi main.py.")
                 save_cfg(comfy_cmd=r[0], comfy_cwd=r[1] or "")
                 self.send_json({"cmd": r[0], "cwd": r[1] or ""})
+            elif self.path == "/api/apikey":
+                k = str(d.get("key", "")).strip()
+                if k:
+                    with open(KEY_FILE, "w", encoding="utf-8") as f:
+                        f.write(k)
+                elif os.path.exists(KEY_FILE):
+                    os.remove(KEY_FILE)
+                self.send_json({"has_key": bool(api_key())})
             elif self.path == "/api/merge":
                 name = merge(d.get("files", []))
                 job = {"id": uuid.uuid4().hex, "params": {"prompt": "Gabungan %d klip" % len(d["files"])},
@@ -442,6 +528,9 @@ footer{border-top:1px solid var(--line);background:var(--panel);display:flex;gap
 <label>Workflow</label><select id="wf"><option value="">Bawaan (Text-to-Video)</option></select>
 <button id="go">Generate</button>
 <button class="sec" id="merge" disabled>Gabung klip terpilih</button>
+<label>API key akun Comfy <span id="kst"></span></label>
+<input type="password" id="key" placeholder="comfyui-…  (dari platform.comfy.org)" style="width:100%;background:#0e0f12;color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:8px;font:inherit">
+<button class="sec" id="ksave">Simpan API key</button>
 </aside>
 <main><video id="v" controls loop style="display:none"></video><div id="msg">Tulis prompt lalu klik Generate. Hasil muncul di bawah.</div></main>
 <footer id="list"></footer>
@@ -450,15 +539,18 @@ const $=id=>document.getElementById(id);let cfg,sel=new Set(),cur="";
 const api=(p,b)=>fetch(p,b?{method:"POST",body:JSON.stringify(b)}:{}).then(r=>r.json());
 function mdl(){return cfg.models.find(m=>m.id==$("model").value)}
 function sync(){const m=mdl();$("dur").min=m.min_dur;if(+$("dur").value<m.min_dur)$("dur").value=m.min_dur;$("dv").textContent=$("dur").value;$("audw").style.display=m.audio?"flex":"none"}
-async function init(){cfg=await api("/api/config");
+async function init(){await fill();
+$("model").onchange=$("dur").oninput=sync;poll();setInterval(poll,2000);status();setInterval(status,5000)}
+async function fill(){cfg=await api("/api/config");const cur=$("model").value;
 $("model").innerHTML=cfg.models.map(m=>`<option value="${m.id}">${m.label}</option>`).join("");
-$("aspect").innerHTML=cfg.aspects.map(a=>`<option>${a}</option>`).join("");
+$("aspect").innerHTML=cfg.aspects.map(a=>`<option ${a=="9:16"?"selected":""}>${a}</option>`).join("");
 $("res").innerHTML=cfg.resolutions.map(a=>`<option ${a=="720p"?"selected":""}>${a}</option>`).join("");
-cfg.workflows.forEach(w=>$("wf").insertAdjacentHTML("beforeend",`<option>${w}</option>`));
-$("model").onchange=$("dur").oninput=sync;sync();poll();setInterval(poll,2000);status();setInterval(status,5000)}
-async function status(){try{const s=await api("/api/status");$("st").textContent=s.comfy?"ComfyUI aktif":"ComfyUI mati";$("st").className="chip"+(s.comfy?" ok":"");$("setup").style.display=s.comfy?"none":"block";$("clog").textContent=s.log||"";$("merge").dataset.ff=s.ffmpeg?1:""}catch(e){}}
+if(cur&&cfg.models.some(m=>m.id==cur))$("model").value=cur;$("wf").length=1;
+cfg.workflows.forEach(w=>$("wf").insertAdjacentHTML("beforeend",`<option>${w}</option>`));sync()}
+async function status(){try{const s=await api("/api/status");$("st").textContent=s.comfy?"ComfyUI aktif":"ComfyUI mati";$("st").className="chip"+(s.comfy?" ok":"");$("setup").style.display=s.comfy?"none":"block";$("clog").textContent=s.log||"";$("kst").textContent=s.has_key?"(tersimpan)":"(belum diisi)";if(s.comfy&&!cfg.live)fill();$("merge").dataset.ff=s.ffmpeg?1:""}catch(e){}}
 $("cfind").onclick=async()=>{$("cmsg").textContent="Mencari…";const r=await api("/api/comfy/save",{path:$("cpath").value});
 $("cmsg").textContent=r.error?r.error:"Tersimpan. Menyalakan ComfyUI, tunggu sebentar…"};
+$("ksave").onclick=async()=>{const r=await api("/api/apikey",{key:$("key").value});$("key").value="";$("kst").textContent=r.has_key?"(tersimpan)":"(belum diisi)"};
 $("go").onclick=async()=>{const r=await api("/api/generate",{prompt:$("prompt").value,model:$("model").value,aspect:$("aspect").value,resolution:$("res").value,duration:+$("dur").value,seed:+$("seed").value,audio:$("aud").checked,camera_fixed:$("cam").checked,workflow:$("wf").value});if(r.error)alert(r.error);else poll()};
 function play(f){cur=f;$("v").src="/outputs/"+f;$("v").style.display="block";$("msg").style.display="none";$("v").play().catch(()=>{});render(last)}
 let last=[];

@@ -7,6 +7,9 @@ Web UI lokal (Python stdlib saja, tanpa dependensi) untuk membuat klip YouTube S
 - `studio.pyw` — supervisor latar belakang: menyalakan ComfyUI (deteksi otomatis atau `comfy_cmd`) + `app.py` tanpa jendela, restart otomatis, membuka jendela `--app` Edge/Chrome. Satu instance lewat lock socket di `app_port + 1`. Menulis `studio.pids` dan `studio.log`.
 - `studio.vbs` — peluncur tersembunyi untuk `studio.pyw`. `stop.bat` — hentikan semua. `autostart-on.bat` / `autostart-off.bat` — tambah/hapus auto-start di folder Startup Windows. `run.bat` — jalan manual dengan console.
 - `buat-shortcut.bat` — buat shortcut "Seedance Studio" di Desktop.
+- `update.bat` — stop, `git pull`, nyalakan lagi.
+- API key akun Comfy (wajib untuk node API berbayar bila dipanggil lewat `/prompt` tanpa UI ComfyUI) dikirim di `extra_data.api_key_comfy_org`; disimpan di `api_key.txt` (gitignored) lewat UI, atau env `COMFY_API_KEY`.
+- Model/aspek/resolusi dibaca dari `/object_info/ByteDanceTextToVideoNode`; input yang tidak dimiliki node disaring sebelum dikirim.
 - `studio_config.json` — `comfy_cmd`, `comfy_cwd`, `comfy_ports` (8188 ComfyUI biasa, 8000 ComfyUI Desktop), `app_port`, dll.
 - `comfy_detect.py` — deteksi/resolusi perintah menyalakan ComfyUI (Desktop .exe, folder manual, paket portable). UI menampilkan panel setup bila ComfyUI belum tersambung; pilihan disimpan ke `studio_config.json` dan supervisor membacanya ulang tiap 5 dtk.
 - ComfyUI pemilik: portable di `C:\AI\ComfyUI_windows_portable` (python_embeded, port 8188, tanpa autentikasi), juga dipakai Luminar Studio (`C:\AI\relight-studio`, backend :8001). Start: `python_embeded\python.exe -s ComfyUI\main.py --listen 127.0.0.1 --port 8188 --disable-auto-launch` dengan cwd folder portable; sudah diisi di `studio_config.json`. Antrean ComfyUI serial (VRAM 8 GB); node Seedance berjalan di cloud.

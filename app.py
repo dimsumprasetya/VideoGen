@@ -13,6 +13,10 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(BASE, "outputs")
 WF = os.path.join(BASE, "workflows")
 VIDEO_EXT = (".mp4", ".webm", ".mov", ".mkv")
+IMAGE_EXT = (".png", ".jpg", ".jpeg", ".webp")
+MIME = {".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime", ".png": "image/png",
+        ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
+SHORT_EDGE = {"480p": 480, "720p": 768, "1080p": 1088}
 
 DEFAULT_CFG = {"app_port": 7860, "comfy_ports": [8188, 8000], "poll_seconds": 3,
                "job_timeout_seconds": 1500}
@@ -184,27 +188,69 @@ def build_graph(p, spec=None):
     }
 
 
+def wf_meta(name):
+    """Kunci "_studio" opsional di workflow custom: label, note, max_short, fps, frame_step, frame_offset, timeout."""
+    try:
+        with open(os.path.join(WF, os.path.basename(name)), encoding="utf-8") as f:
+            m = json.load(f).get("_studio")
+        return m if isinstance(m, dict) else {}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def size_for(aspect, resolution, max_short=None):
+    """Lebar/tinggi kelipatan 32 dari aspek ("9:16") dan resolusi ("720p")."""
+    short = SHORT_EDGE.get(resolution, 768)
+    if max_short:
+        short = min(short, int(max_short))
+    try:
+        a, b = (float(x) for x in aspect.split(":"))
+    except ValueError:
+        a, b = 9.0, 16.0
+    long_ = int(short * max(a, b) / min(a, b)) // 32 * 32  # bulatkan ke bawah supaya tidak melebihi batas model
+    short = short // 32 * 32
+    return (short, long_) if a <= b else (long_, short)
+
+
+def frames_for(duration, meta):
+    """Jumlah frame untuk durasi; dibulatkan naik ke grid model (mis. MiniMax H3: 17k+5 @24fps)."""
+    fps, step, off = int(meta.get("fps", 24)), int(meta.get("frame_step", 1)), int(meta.get("frame_offset", 0))
+    n = max(off or 1, round(duration * fps))
+    return n + (off - n % step) % step
+
+
 def custom_graph(name, p):
     path = os.path.join(WF, os.path.basename(name))
     with open(path, encoding="utf-8") as f:
         text = f.read()
+    meta = wf_meta(name)
+    w, h = size_for(p["aspect"], p["resolution"], meta.get("max_short"))
     subs = {"{{PROMPT}}": p["prompt"], "{{ASPECT}}": p["aspect"], "{{RESOLUTION}}": p["resolution"]}
     for k, v in subs.items():
         text = text.replace('"%s"' % k, json.dumps(v))
         text = text.replace(k, json.dumps(v)[1:-1])
-    text = text.replace('"{{SEED}}"', str(p["seed"])).replace('"{{DURATION}}"', str(p["duration"]))
-    return json.loads(text)
+    nums = {"SEED": p["seed"], "DURATION": p["duration"], "WIDTH": w, "HEIGHT": h,
+            "FRAMES": frames_for(p["duration"], meta)}
+    for k, v in nums.items():
+        text = text.replace('"{{%s}}"' % k, str(v))
+    graph = json.loads(text)
+    graph.pop("_studio", None)
+    return graph
 
 
 def find_videos(outputs):
-    found = []
+    """File hasil: video lebih dulu, gambar bila workflow hanya menghasilkan gambar."""
+    vids, imgs = [], []
     for node in outputs.values():
         for items in node.values():
             if isinstance(items, list):
                 for it in items:
-                    if isinstance(it, dict) and str(it.get("filename", "")).lower().endswith(VIDEO_EXT):
-                        found.append(it)
-    return found
+                    fn = str(it.get("filename", "")).lower() if isinstance(it, dict) else ""
+                    if fn.endswith(VIDEO_EXT):
+                        vids.append(it)
+                    elif fn.endswith(IMAGE_EXT) and it.get("type", "output") == "output":
+                        imgs.append(it)
+    return vids or imgs
 
 
 def run_job(job):
@@ -230,10 +276,13 @@ def run_job(job):
                         msg += " | node %s: %s %s" % (nid, er.get("message"), er.get("extra_info", ""))
             except ValueError:
                 msg = body
-            raise RuntimeError("ComfyUI menolak workflow: " + msg[:600])
+            if "does not exist" in msg or "value_not_in_list" in body or "not in list" in msg:
+                msg += " -> Node/model belum terpasang. Update ComfyUI dan unduh file model ke folder models (lihat catatan workflow)."
+            raise RuntimeError("ComfyUI menolak workflow: " + msg[:800])
         pid = res["prompt_id"]
         job["status"] = "running"
-        deadline = time.time() + CFG["job_timeout_seconds"]
+        timeout = wf_meta(p["workflow"]).get("timeout") if p.get("workflow") else None
+        deadline = time.time() + max(CFG["job_timeout_seconds"], int(timeout or 0))
         while time.time() < deadline:
             time.sleep(CFG["poll_seconds"])
             h = http_json(base + "/history/" + pid, timeout=15).get(pid)
@@ -265,7 +314,7 @@ def run_job(job):
             http_json(base + "/interrupt", {}, timeout=10)
         except Exception:
             pass
-        raise RuntimeError("Timeout menunggu hasil dari Seedance (job dibatalkan).")
+        raise RuntimeError("Timeout menunggu hasil dari ComfyUI (job dibatalkan).")
     except Exception as e:
         msg = str(e)
         low = msg.lower()
@@ -299,17 +348,19 @@ def load_history():
 
 
 def clean_params(d):
-    prompt = str(d.get("prompt", "")).strip()
-    if not prompt:
+    scene = str(d.get("prompt", "")).strip()
+    if not scene:
         raise ValueError("Prompt kosong.")
+    style = str(d.get("style", "")).strip()  # gaya/karakter tetap, ditaruh di depan prompt scene
+    prompt = style + "\n" + scene if style else scene
     model = d.get("model") or MODELS[0]["id"]
     m = next((x for x in MODELS if x["id"] == model), None)
-    dur = max(m["min_dur"] if m else 3, min(12, int(d.get("duration", 5))))
+    dur = max(m["min_dur"] if m else 3, min(15, int(d.get("duration", 5))))
     seed = int(d.get("seed", -1))
     if seed < 0:
         seed = random.randint(0, 2**31 - 1)
     return {
-        "prompt": prompt, "model": model, "duration": dur, "seed": seed,
+        "prompt": prompt, "scene": scene, "model": model, "duration": dur, "seed": seed,
         "aspect": str(d.get("aspect") or "9:16")[:20],          # opsi sebenarnya divalidasi ComfyUI
         "resolution": str(d.get("resolution") or "720p")[:20],
         "audio": bool(d.get("audio")), "camera_fixed": bool(d.get("camera_fixed")),
@@ -321,6 +372,8 @@ def merge(files):
     if not shutil.which("ffmpeg"):
         raise RuntimeError("ffmpeg tidak ditemukan di PATH.")
     paths = [os.path.join(OUT, os.path.basename(f)) for f in files]
+    if any(not p.lower().endswith(VIDEO_EXT) for p in paths):
+        raise RuntimeError("Hanya klip video yang bisa digabung.")
     if len(paths) < 2 or not all(os.path.exists(p) for p in paths):
         raise RuntimeError("Pilih minimal 2 klip yang ada.")
     name = "merged_%s.mp4" % time.strftime("%Y%m%d-%H%M%S")
@@ -365,7 +418,9 @@ class H(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b)
         elif u.path == "/api/config":
-            wfs = sorted(f for f in os.listdir(WF) if f.endswith(".json")) if os.path.isdir(WF) else []
+            names = sorted(f for f in os.listdir(WF) if f.endswith(".json")) if os.path.isdir(WF) else []
+            wfs = [{"file": f, "label": wf_meta(f).get("label") or f, "note": wf_meta(f).get("note", "")}
+                   for f in names]
             spec = node_spec(comfy_url())
             cb = spec["combos"] if spec else {}
             self.send_json({"models": model_list(spec), "aspects": cb.get("aspect_ratio") or ASPECTS,
@@ -408,7 +463,7 @@ class H(BaseHTTPRequestHandler):
             end = min(end, size - 1)
             code = 206
         self.send_response(code)
-        self.send_header("Content-Type", "video/mp4" if name.endswith(".mp4") else "application/octet-stream")
+        self.send_header("Content-Type", MIME.get(os.path.splitext(name)[1].lower(), "application/octet-stream"))
         self.send_header("Accept-Ranges", "bytes")
         self.send_header("Content-Length", str(end - start + 1))
         if code == 206:
@@ -518,47 +573,55 @@ footer{border-top:1px solid var(--line);background:var(--panel);display:flex;gap
 <b>ComfyUI belum tersambung</b><div style="color:var(--mut);font-size:12px;margin:4px 0">Klik cari otomatis, atau tempel lokasi ComfyUI.exe / folder ComfyUI / port (mis. 8000) bila ComfyUI sudah jalan.</div>
 <input id="cpath" placeholder="Lokasi ComfyUI.exe atau folder ComfyUI" style="width:100%;background:#0e0f12;color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:8px;font:inherit">
 <button id="cfind" style="margin-top:8px">Cari &amp; sambungkan</button><div id="cmsg" style="font-size:12px;margin-top:6px;color:var(--mut)"></div><pre id="clog" style="font-size:11px;color:var(--mut);white-space:pre-wrap;margin:6px 0 0"></pre></div>
-<label>Prompt</label><textarea id="prompt" placeholder="Seekor kucing oranye berlari di atap kota saat senja, kamera mengikuti, sinematik"></textarea>
-<label>Model</label><select id="model"></select>
+<label>Workflow</label><select id="wf"><option value="">Seedance cloud (bayar kredit Comfy)</option></select>
+<div id="wfnote" style="font-size:12px;color:var(--mut);margin-top:4px"></div>
+<label>Gaya &amp; karakter (tetap untuk semua scene, opsional)</label><textarea id="style" style="height:70px" placeholder="STYLE: animasi 3D lucu… CHARACTERS: &quot;Kiko&quot;, bayi panda merah… SETTING: …"></textarea>
+<label>Scene / prompt</label><textarea id="prompt" placeholder="Seekor kucing oranye berlari di atap kota saat senja, kamera mengikuti, sinematik"></textarea>
+<div id="sdw"><label>Model</label><select id="model"></select></div>
 <div class="row"><div><label>Aspek</label><select id="aspect"></select></div><div><label>Resolusi</label><select id="res"></select></div></div>
-<label>Durasi: <b id="dv">5</b> detik</label><input type="range" id="dur" min="3" max="12" value="5">
+<label>Durasi: <b id="dv">5</b> detik</label><input type="range" id="dur" min="3" max="15" value="5">
 <div class="row"><div><label>Seed (-1 = acak)</label><input type="number" id="seed" value="-1"></div></div>
 <div class="chk" id="audw"><input type="checkbox" id="aud"><span>Generate audio</span></div>
-<div class="chk"><input type="checkbox" id="cam"><span>Kamera tetap</span></div>
-<label>Workflow</label><select id="wf"><option value="">Bawaan (Text-to-Video)</option></select>
+<div class="chk" id="camw"><input type="checkbox" id="cam"><span>Kamera tetap</span></div>
 <button id="go">Generate</button>
 <button class="sec" id="merge" disabled>Gabung klip terpilih</button>
 <label>API key akun Comfy <span id="kst"></span></label>
 <input type="password" id="key" placeholder="comfyui-…  (dari platform.comfy.org)" style="width:100%;background:#0e0f12;color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:8px;font:inherit">
 <button class="sec" id="ksave">Simpan API key</button>
 </aside>
-<main><video id="v" controls loop style="display:none"></video><div id="msg">Tulis prompt lalu klik Generate. Hasil muncul di bawah.</div></main>
+<main><video id="v" controls loop style="display:none"></video><img id="im" style="display:none;max-width:100%;max-height:100%;border-radius:10px"><div id="msg">Tulis prompt lalu klik Generate. Hasil muncul di bawah.</div></main>
 <footer id="list"></footer>
 <script>
 const $=id=>document.getElementById(id);let cfg,sel=new Set(),cur="";
 const api=(p,b)=>fetch(p,b?{method:"POST",body:JSON.stringify(b)}:{}).then(r=>r.json());
 function mdl(){return cfg.models.find(m=>m.id==$("model").value)}
-function sync(){const m=mdl();$("dur").min=m.min_dur;if(+$("dur").value<m.min_dur)$("dur").value=m.min_dur;$("dv").textContent=$("dur").value;$("audw").style.display=m.audio?"flex":"none"}
-async function init(){await fill();
-$("model").onchange=$("dur").oninput=sync;poll();setInterval(poll,2000);status();setInterval(status,5000)}
+const store=(k,v)=>{try{if(v===undefined)return localStorage.getItem(k)||"";localStorage.setItem(k,v)}catch(e){return ""}};
+function sync(){const m=mdl(),w=$("wf").value,info=(cfg.workflows||[]).find(x=>x.file==w);$("dur").max=w?15:12;$("dur").min=w?1:m.min_dur;
+if(+$("dur").value<+$("dur").min)$("dur").value=$("dur").min;if(+$("dur").value>+$("dur").max)$("dur").value=$("dur").max;$("dv").textContent=$("dur").value;
+$("sdw").style.display=$("camw").style.display=w?"none":"";$("audw").style.display=!w&&m.audio?"flex":"none";$("wfnote").textContent=info?info.note:"Butuh API key + kredit akun Comfy."}
+async function init(){$("style").value=store("style");$("style").oninput=()=>store("style",$("style").value);await fill();
+$("model").onchange=$("dur").oninput=sync;$("wf").onchange=()=>{store("wf",$("wf").value);sync()};poll();setInterval(poll,2000);status();setInterval(status,5000)}
 async function fill(){cfg=await api("/api/config");const cur=$("model").value;
 $("model").innerHTML=cfg.models.map(m=>`<option value="${m.id}">${m.label}</option>`).join("");
 $("aspect").innerHTML=cfg.aspects.map(a=>`<option ${a=="9:16"?"selected":""}>${a}</option>`).join("");
 $("res").innerHTML=cfg.resolutions.map(a=>`<option ${a=="720p"?"selected":""}>${a}</option>`).join("");
-if(cur&&cfg.models.some(m=>m.id==cur))$("model").value=cur;$("wf").length=1;
-cfg.workflows.forEach(w=>$("wf").insertAdjacentHTML("beforeend",`<option>${w}</option>`));sync()}
+if(cur&&cfg.models.some(m=>m.id==cur))$("model").value=cur;const wv=$("wf").value||store("wf");$("wf").length=1;
+cfg.workflows.forEach(w=>{const o=document.createElement("option");o.value=w.file;o.textContent=w.label;$("wf").appendChild(o)});
+if(cfg.workflows.some(w=>w.file==wv))$("wf").value=wv;sync()}
 async function status(){try{const s=await api("/api/status");$("st").textContent=s.comfy?"ComfyUI aktif":"ComfyUI mati";$("st").className="chip"+(s.comfy?" ok":"");$("setup").style.display=s.comfy?"none":"block";$("clog").textContent=s.log||"";$("kst").textContent=s.has_key?"(tersimpan)":"(belum diisi)";if(s.comfy&&!cfg.live)fill();$("merge").dataset.ff=s.ffmpeg?1:""}catch(e){}}
 $("cfind").onclick=async()=>{$("cmsg").textContent="Mencari…";const r=await api("/api/comfy/save",{path:$("cpath").value});
 $("cmsg").textContent=r.error?r.error:"Tersimpan. Menyalakan ComfyUI, tunggu sebentar…"};
 $("ksave").onclick=async()=>{const r=await api("/api/apikey",{key:$("key").value});$("key").value="";$("kst").textContent=r.has_key?"(tersimpan)":"(belum diisi)"};
-$("go").onclick=async()=>{const r=await api("/api/generate",{prompt:$("prompt").value,model:$("model").value,aspect:$("aspect").value,resolution:$("res").value,duration:+$("dur").value,seed:+$("seed").value,audio:$("aud").checked,camera_fixed:$("cam").checked,workflow:$("wf").value});if(r.error)alert(r.error);else poll()};
-function play(f){cur=f;$("v").src="/outputs/"+f;$("v").style.display="block";$("msg").style.display="none";$("v").play().catch(()=>{});render(last)}
+$("go").onclick=async()=>{const r=await api("/api/generate",{prompt:$("prompt").value,style:$("style").value,model:$("model").value,aspect:$("aspect").value,resolution:$("res").value,duration:+$("dur").value,seed:+$("seed").value,audio:$("aud").checked,camera_fixed:$("cam").checked,workflow:$("wf").value});if(r.error)alert(r.error);else poll()};
+const isImg=f=>/\.(png|jpe?g|webp)$/i.test(f);
+function play(f){cur=f;$("msg").style.display="none";if(isImg(f)){$("v").pause();$("v").style.display="none";$("im").src="/outputs/"+f;$("im").style.display="block"}
+else{$("im").style.display="none";$("v").src="/outputs/"+f;$("v").style.display="block";$("v").play().catch(()=>{})}render(last)}
 let last=[];
 function render(jobs){last=jobs;$("list").innerHTML=jobs.map(j=>{const d=j.status=="done";
 return `<div class="card ${j.file&&j.file==cur?"sel":""}" onclick="${d?`play('${j.file}')`:`alert(${JSON.stringify(j.error||"Sedang diproses…").replace(/"/g,"&quot;")})`}">
-${d?`<input type="checkbox" ${sel.has(j.file)?"checked":""} onclick="event.stopPropagation();tog('${j.file}')">`:""}
+${d&&!isImg(j.file)?`<input type="checkbox" ${sel.has(j.file)?"checked":""} onclick="event.stopPropagation();tog('${j.file}')">`:""}
 <span class="s ${j.status}">${{queued:"Antre…",running:"Memproses…",done:"Selesai",error:"Gagal"}[j.status]}</span>
-<span class="p">${j.params.prompt.replace(/</g,"&lt;")}</span>
+<span class="p">${(j.params.scene||j.params.prompt).replace(/</g,"&lt;")}</span>
 ${d?`<span class="x" onclick="event.stopPropagation();del('${j.file}')">hapus</span>`:""}</div>`}).join("");
 $("merge").disabled=sel.size<2}
 function tog(f){sel.has(f)?sel.delete(f):sel.add(f);$("merge").disabled=sel.size<2}

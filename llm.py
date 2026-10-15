@@ -197,3 +197,41 @@ def fit_durations(scenes, total, max_scene, min_scene=2):
     for s, x in zip(scenes, durs):
         s["duration"] = x
     return scenes
+
+
+S_BREAKDOWN = {"type": "object", "required": ["look", "characters", "locations", "props", "scenes"], "properties": {
+    "look": {"type": "object", "required": ["style", "camera", "lighting", "palette"],
+             "properties": {"style": {"type": "string"}, "camera": {"type": "string"},
+                            "lighting": {"type": "string"}, "palette": {"type": "string"}}},
+    "characters": {"type": "array", "items": {"type": "object", "required": ["name", "look", "wardrobe", "makeup"],
+                   "properties": {"name": {"type": "string"}, "look": {"type": "string"},
+                                  "wardrobe": {"type": "string"}, "makeup": {"type": "string"}}}},
+    "locations": {"type": "array", "items": {"type": "object", "required": ["name", "description"],
+                  "properties": {"name": {"type": "string"}, "description": {"type": "string"}}}},
+    "props": {"type": "array", "items": {"type": "object", "required": ["name", "description"],
+              "properties": {"name": {"type": "string"}, "description": {"type": "string"}}}},
+    "scenes": {"type": "array", "items": {"type": "object", "required": ["scene", "characters", "location", "props", "shot", "camera"],
+               "properties": {"scene": {"type": "integer"}, "characters": {"type": "array", "items": {"type": "string"}},
+                              "location": {"type": "string"}, "props": {"type": "array", "items": {"type": "string"}},
+                              "shot": {"type": "string"}, "camera": {"type": "string"}}}}}}
+
+
+def breakdown(base, model, d):
+    """Breakdown script: karakter (fisik, wardrobe, make-up), set/lokasi, properti, mood & style, dan isi tiap scene."""
+    scenes = d.get("scenes") or []
+    lines = ["Scene %d (%ss) | location: %s | time: %s | action: %s | dialog: %s" % (
+        i + 1, s.get("duration", ""), s.get("location", ""), s.get("time", ""), s.get("action", ""), s.get("dialog", ""))
+        for i, s in enumerate(scenes)]
+    user = ("Make a production breakdown of this short-video script so every AI-generated shot stays visually consistent.\n\n"
+            "STORYLINE:\n%s\n\nSCRIPT:\n%s\n\nVisual style wanted (may be empty): %s\n\n"
+            "Return:\n- look: overall visual style (e.g. 3D animation / live action / anime), camera language, lighting, "
+            "color palette.\n- characters: every character; look = fixed physical description (age, body, face, hair, "
+            "skin/fur), wardrobe = clothes, makeup = make-up / hair styling / special effects (or 'none').\n"
+            "- locations: every set/location with a reusable visual description.\n- props: important objects.\n"
+            "- scenes: for EACH scene number 1-%d: character names present, location name, prop names, shot size "
+            "(Wide, Medium, Close-up, Extreme close-up, Over-the-shoulder, POV, Top-down) and camera movement "
+            "(Static, Pan, Tilt, Push-in, Pull-out, Tracking, Handheld, Orbit).\n"
+            "Write ALL descriptions in English (they become AI video prompts); keep character and location names "
+            "exactly as in the script."
+            % (d.get("storyline", ""), "\n".join(lines), d.get("style", ""), len(scenes)))
+    return chat_json(base, model, SYSTEM, user, S_BREAKDOWN)

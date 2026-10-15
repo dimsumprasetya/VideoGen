@@ -1,5 +1,6 @@
 {
   "_studio": {
+    "kind": "image",
     "label": "Z-Image Turbo lokal - GRATIS (gambar: karakter/lokasi/storyboard)",
     "note": "Gambar, bukan video. Jalan di GPU sendiri (cukup VRAM 8 GB), tanpa kredit. Butuh model z_image_turbo, qwen_3_4b_fp8_mixed, ae.safetensors (~11 GB). Durasi diabaikan.",
     "max_short": 1088,

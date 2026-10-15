@@ -5,3 +5,6 @@ __pycache__/
 api_key.txt
 projects/
 cek-ollama.txt
+version.txt
+python_path.txt
+studio.log.old

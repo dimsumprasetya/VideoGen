@@ -1,5 +1,6 @@
 {
   "_studio": {
+    "kind": "video",
     "label": "MiniMax H3 lokal - GRATIS (video + audio)",
     "note": "Jalan di GPU sendiri, tanpa kredit. Butuh ComfyUI terbaru + model MiniMax H3 (~40 GB) di folder models. Di VRAM 8 GB sangat lambat (offload ke RAM, disarankan RAM 64 GB). Aspek & resolusi dipakai, maks 768 px sisi pendek; durasi maks ~15 dtk.",
     "max_short": 768,

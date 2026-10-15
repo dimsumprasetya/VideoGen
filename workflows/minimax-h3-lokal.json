@@ -6,6 +6,7 @@
     "note": "Jalan di GPU sendiri, tanpa kredit. Butuh ComfyUI terbaru + model MiniMax H3 (~40 GB) di folder models. Di VRAM 8 GB sangat lambat (offload ke RAM, disarankan RAM 64 GB). Aspek & resolusi dipakai, maks 768 px sisi pendek; durasi maks ~15 dtk.",
     "max_short": 768,
     "fps": 24, "frame_step": 17, "frame_offset": 5,
+    "first_frame": ["6", "first_frame"],
     "timeout": 7200,
     "models": [
       {"folder": "diffusion_models", "file": "minimax_h3_fl2va_pruned_int8_convrot.safetensors", "gb": 19.5, "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors"},

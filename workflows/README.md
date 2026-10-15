@@ -7,12 +7,15 @@ Kunci opsional "_studio" (dibuang sebelum dikirim ke ComfyUI):
   {"kind": "video|image|audio", "label": "nama di dropdown", "note": "catatan di UI", "max_short": 768,
    "max_duration": 15, "fps": 24, "frame_step": 17, "frame_offset": 5, "timeout": 7200,
    "models": [{"folder": "checkpoints", "file": "x.safetensors", "gb": 2, "url": "https://..."}]}
+  "first_frame": ["<id node>", "<nama input IMAGE>"]  (opsional, workflow video)
+  -> node yang menerima frame pertama. Dipakai untuk continuity: frame terakhir take scene sebelumnya
+     diunggah ke ComfyUI (/upload/image) dan disambungkan lewat node LoadImage baru (id "900").
 kind menentukan tahap: video -> 4 Production, image -> 3 Breakdown (gambar referensi/sketsa), audio -> 5 Editing (musik).
 Workflow boleh menghasilkan video (SaveVideo), gambar (SaveImage) atau audio (SaveAudio).
 Workflow muncul di dropdown "Workflow" pada UI.
 
 Bawaan (lokal, gratis, tanpa kredit Comfy):
-- minimax-h3-lokal.json — MiniMax H3 text-to-video + audio (8 step turbo LoRA).
+- minimax-h3-lokal.json — MiniMax H3 text/image-to-video + audio (8 step turbo LoRA); first_frame = node 6.
   Model: diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors,
   text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors,
   vae/minimax_h3_video_vae_int8_convrot.safetensors, vae/minimax_h3_audio_vae_fp32.safetensors,

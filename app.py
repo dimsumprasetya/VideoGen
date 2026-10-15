@@ -19,7 +19,8 @@ OUT = os.path.join(BASE, "outputs")
 WF = os.path.join(BASE, "workflows")
 PROJ = os.path.join(BASE, "projects")
 THUMBS = os.path.join(BASE, "cache", "styles")  # foto contoh gaya (Pexels), diunduh sekali
-VTHUMBS = os.path.join(BASE, "cache", "thumbs")  # cuplikan JPG kecil dari video (pengganti <video> di daftar take)
+VTHUMBS = os.path.join(BASE, "cache", "thumbs")
+FRAMES = os.path.join(BASE, "cache", "frames")  # frame terakhir tiap take (PNG penuh, untuk image-to-video)  # cuplikan JPG kecil dari video (pengganti <video> di daftar take)
 NOWIN = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 THUMB_FAIL = {}  # pexels id -> waktu gagal terakhir (jangan coba ulang terus-menerus)  # breakdown pra-produksi: projects/<nama>.json
 VIDEO_EXT = (".mp4", ".webm", ".mov", ".mkv")
@@ -183,7 +184,8 @@ def comfy_url():
 
 KEY_FILE = os.path.join(BASE, "api_key.txt")
 NODE = "ByteDanceTextToVideoNode"
-_SPEC = {"t": 0.0, "base": "", "spec": None}
+I2V = "ByteDanceImageToVideoNode"  # frame pertama = frame terakhir scene sebelumnya (continuity antar klip)
+_SPECS = {}  # node -> {"t", "base", "spec"}
 
 
 def api_key():
@@ -206,14 +208,15 @@ def _combo(spec):
     return None
 
 
-def node_spec(base):
+def node_spec(base, node=NODE):
     """Input node Seedance menurut ComfyUI yang terpasang: {"names": set, "combos": {nama: [opsi]}} atau None."""
     if not base:
         return None
+    _SPEC = _SPECS.setdefault(node, {"t": 0.0, "base": "", "spec": None})
     if _SPEC["base"] == base and time.time() - _SPEC["t"] < (300 if _SPEC["spec"] else 60):
         return _SPEC["spec"]
     try:
-        info = http_json(base + "/object_info/" + NODE, timeout=10).get(NODE)
+        info = http_json(base + "/object_info/" + node, timeout=10).get(node)
     except Exception:
         info = None
     if not info:
@@ -242,8 +245,9 @@ def model_list(spec):
     return out
 
 
-def build_graph(p, spec=None):
-    """Workflow bawaan Text-to-Video Seedance (format API)."""
+def build_graph(p, spec=None, image=None):
+    """Workflow bawaan Seedance (format API): Text-to-Video, atau Image-to-Video bila `image` (nama file di folder
+    input ComfyUI) = frame pertama."""
     inputs = {
         "model": p["model"], "prompt": p["prompt"], "resolution": p["resolution"],
         "aspect_ratio": p["aspect"], "duration": p["duration"], "seed": p["seed"],
@@ -253,15 +257,23 @@ def build_graph(p, spec=None):
         inputs["generate_audio"] = True
     if spec:  # kirim hanya input yang memang dimiliki node di ComfyUI ini
         models = spec["combos"].get("model")
-        if models and p["model"] not in models:
-            raise RuntimeError("Model %s tidak ada di ComfyUI ini. Pilihan: %s" % (p["model"], ", ".join(models)))
+        if models and inputs["model"] not in models:
+            if not image:
+                raise RuntimeError("Model %s tidak ada di ComfyUI ini. Pilihan: %s" % (inputs["model"], ", ".join(models)))
+            # model ini tidak punya versi image-to-video (mis. lite): pakai model i2v terdekat
+            inputs["model"] = next((m for m in models if "fast" in m), models[0])
         inputs = {k: v for k, v in inputs.items() if k in spec["names"]}
-    return {
-        "1": {"class_type": "ByteDanceTextToVideoNode", "inputs": inputs},
+    if image:
+        inputs["image"] = ["3", 0]
+    graph = {
+        "1": {"class_type": I2V if image else NODE, "inputs": inputs},
         "2": {"class_type": "SaveVideo", "inputs": {
             "video": ["1", 0], "filename_prefix": "video/seedance",
             "format": "auto", "codec": "auto"}},
     }
+    if image:
+        graph["3"] = {"class_type": "LoadImage", "inputs": {"image": image}}
+    return graph
 
 
 def wf_meta(name):
@@ -311,6 +323,10 @@ def custom_graph(name, p):
         text = text.replace('"{{%s}}"' % k, str(v))
     graph = json.loads(text)
     graph.pop("_studio", None)
+    ff = meta.get("first_frame")  # ["<node id>", "<nama input>"]: node yang menerima frame pertama
+    if p.get("image") and ff and ff[0] in graph:
+        graph["900"] = {"class_type": "LoadImage", "inputs": {"image": p["image"]}}
+        graph[ff[0]]["inputs"][ff[1]] = ["900", 0]
     return graph
 
 
@@ -423,6 +439,78 @@ def free_ollama():
         pass
 
 
+def last_frame(name):
+    """PNG frame terakhir sebuah video di outputs (gambar: dikembalikan apa adanya). Dibuat sekali lewat ffmpeg."""
+    src = out_path(name)
+    if src.lower().endswith(IMAGE_EXT):
+        return src
+    if not has_tool("ffmpeg"):
+        raise RuntimeError("ffmpeg dibutuhkan untuk mengambil frame terakhir scene sebelumnya (pasang ffmpeg).")
+    dst = os.path.join(FRAMES, os.path.basename(src) + ".last.png")
+    if os.path.exists(dst):
+        return dst
+    os.makedirs(FRAMES, exist_ok=True)
+    tmp = "%s.%d.tmp.png" % (dst, threading.get_ident())
+    for seek in (["-sseof", "-0.6"], []):  # -update 1: tiap frame menimpa file -> tersisa frame terakhir
+        subprocess.run([shutil.which("ffmpeg") or "ffmpeg", "-v", "error", "-y"] + seek + ["-i", src, "-an",
+                        "-update", "1", tmp], capture_output=True, timeout=120, creationflags=NOWIN)
+        if os.path.exists(tmp) and os.path.getsize(tmp):
+            os.replace(tmp, dst)
+            return dst
+    raise RuntimeError("Tidak bisa mengambil frame terakhir dari %s." % name)
+
+
+def frame_thumb(name):
+    """JPG kecil frame terakhir (untuk ditampilkan di UI). None bila tidak bisa."""
+    try:
+        png = last_frame(name)
+    except (RuntimeError, OSError, subprocess.SubprocessError):
+        return None
+    dst = os.path.join(VTHUMBS, os.path.basename(name) + ".last.jpg")
+    if not os.path.exists(dst):
+        os.makedirs(VTHUMBS, exist_ok=True)
+        subprocess.run([shutil.which("ffmpeg") or "ffmpeg", "-v", "error", "-y", "-i", png, "-vf", "scale=360:-2",
+                        "-q:v", "5", dst], capture_output=True, timeout=30, creationflags=NOWIN)
+    return dst if os.path.exists(dst) else None
+
+
+def comfy_upload(base, path):
+    """Unggah gambar ke folder input ComfyUI (POST /upload/image, multipart). Return nama untuk LoadImage."""
+    bnd = uuid.uuid4().hex
+    name = "studio_" + re.sub(r"[^\w.\-]", "_", os.path.basename(path))
+    with open(path, "rb") as f:
+        data = f.read()
+    part = lambda n, v: b"--%s\r\nContent-Disposition: form-data; name=\"%s\"\r\n\r\n%s\r\n" % (bnd.encode(), n, v)
+    body = (b"--%s\r\nContent-Disposition: form-data; name=\"image\"; filename=\"%s\"\r\nContent-Type: %s\r\n\r\n"
+            % (bnd.encode(), name.encode(), b"image/png" if name.lower().endswith(".png") else b"image/jpeg")
+            + data + b"\r\n" + part(b"type", b"input") + part(b"overwrite", b"true") + b"--%s--\r\n" % bnd.encode())
+    req = urllib.request.Request(base + "/upload/image", data=body, method="POST",
+                                 headers={"Content-Type": "multipart/form-data; boundary=" + bnd})
+    with LOCAL.open(req, timeout=60) as r:
+        res = json.loads(r.read().decode())
+    return (res["subfolder"] + "/" if res.get("subfolder") else "") + res["name"]
+
+
+def first_source(job):
+    """Nama file yang frame terakhirnya jadi frame pertama job ini. None = scene sebelumnya masih dikerjakan
+    (job dimasukkan lagi ke belakang antrean)."""
+    p = job["params"]
+    if not p.get("first_job"):
+        return p.get("first_file") or None
+    dep = JOBS.get(p["first_job"])
+    if not dep:
+        raise RuntimeError("Take scene sebelumnya tidak ditemukan (aplikasi sempat restart). Generate ulang scene ini.")
+    if dep["status"] in ("queued", "running"):
+        job.pop("started", None)
+        job["progress"] = {"pct": 0, "stage": "Menunggu scene sebelumnya"}
+        time.sleep(1)
+        WORK.put(job)
+        return None
+    if dep["status"] != "done" or not dep.get("file"):
+        raise RuntimeError("Scene sebelumnya gagal dibuat, jadi scene ini tidak bisa disambung. Ulangi scene sebelumnya dulu.")
+    return dep["file"]
+
+
 def run_job(job):
     prog = None
     job["started"] = time.time()
@@ -437,7 +525,25 @@ def run_job(job):
             if missing:
                 raise RuntimeError("Model belum ada di ComfyUI: %s -> Klik 'Unduh model yang kurang' di kotak model (kolom kiri tahap ini), lalu ulangi." % ", ".join(missing))
             free_ollama()  # model lokal berjalan di GPU sendiri (Seedance cloud tidak perlu)
-        graph = custom_graph(p["workflow"], p) if p.get("workflow") else build_graph(p, node_spec(base))
+        image = None
+        if p.get("first_job") or p.get("first_file"):  # continuity: frame terakhir scene sebelumnya
+            src = first_source(job)
+            if src is None:
+                return
+            if p.get("workflow") and not wf_meta(p["workflow"]).get("first_frame"):
+                job["note"] = "Workflow ini tidak menerima frame pertama; dibuat dari teks saja."
+            else:
+                job["progress"] = {"pct": 0, "stage": "Mengambil frame terakhir scene sebelumnya"}
+                image = comfy_upload(base, last_frame(src))
+                job["first_used"] = src
+        if p.get("workflow"):
+            graph = custom_graph(p["workflow"], dict(p, image=image))
+        else:
+            spec = node_spec(base, I2V if image else NODE)
+            if image and not spec:
+                raise RuntimeError("Node %s tidak ada di ComfyUI ini (update ComfyUI), jadi scene tidak bisa disambung "
+                                   "dari frame terakhir. Pilih 'Teks saja' di Frame pertama." % I2V)
+            graph = build_graph(p, spec, image)
         job["status"] = "queued"
         job["progress"] = {"pct": 0, "stage": "Mengirim ke ComfyUI"}
         try:  # progres per node/step lewat websocket ComfyUI (opsional)
@@ -618,6 +724,8 @@ def video_thumb(name):
 
 def save_meta(job):
     meta = {k: job[k] for k in ("id", "params", "file", "created")}
+    if job.get("first_used"):
+        meta["first_used"] = job["first_used"]
     with open(os.path.join(OUT, job["file"] + ".json"), "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False)
 
@@ -658,6 +766,8 @@ def clean_params(d):
         "resolution": str(d.get("resolution") or "720p")[:20],
         "audio": bool(d.get("audio")), "camera_fixed": bool(d.get("camera_fixed")),
         "workflow": wf, "ref": str(d.get("ref", ""))[:80],
+        # frame pertama: file hasil (video -> frame terakhirnya, gambar -> apa adanya) atau job yang belum selesai
+        "first_file": os.path.basename(str(d.get("first_file") or "")), "first_job": str(d.get("first_job") or "")[:40],
     }
 
 
@@ -893,12 +1003,14 @@ class H(BaseHTTPRequestHandler):
             names = sorted(f for f in os.listdir(WF) if f.endswith(".json")) if os.path.isdir(WF) else []
             wfs = [{"file": f, "label": wf_meta(f).get("label") or f, "note": wf_meta(f).get("note", ""),
                     "kind": wf_meta(f).get("kind", "video"), "max_duration": wf_meta(f).get("max_duration", 15),
-                    "audio": bool(wf_meta(f).get("audio"))}
+                    "audio": bool(wf_meta(f).get("audio")), "first_frame": bool(wf_meta(f).get("first_frame"))}
                    for f in names]
             spec = node_spec(comfy_url())
             cb = spec["combos"] if spec else {}
+            i2v = node_spec(comfy_url(), I2V)
             self.send_json({"models": model_list(spec), "aspects": cb.get("aspect_ratio") or ASPECTS,
                             "resolutions": cb.get("resolution") or RESOLUTIONS, "live": bool(spec),
+                            "i2v": bool(i2v), "i2v_models": (i2v or {}).get("combos", {}).get("model") or [],
                             "workflows": wfs})
         elif u.path == "/api/busy":
             self.send_json({"busy": busy()})
@@ -942,6 +1054,18 @@ class H(BaseHTTPRequestHandler):
             self.send_json(llm.PROG)
         elif u.path == "/api/jobs":
             self.send_json(jobs_view())
+        elif u.path == "/api/lastframe":
+            path = frame_thumb(parse_qs(u.query).get("f", [""])[0])
+            if not path:
+                return self.send_json({"error": "tidak tersedia"}, 404)
+            with open(path, "rb") as f:
+                b = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Cache-Control", "private, max-age=604800")
+            self.send_header("Content-Length", str(len(b)))
+            self.end_headers()
+            self.wfile.write(b)
         elif u.path == "/api/thumb":
             path = video_thumb(parse_qs(u.query).get("f", [""])[0])
             if not path:
@@ -1134,7 +1258,8 @@ class H(BaseHTTPRequestHandler):
                 self.send_json({"file": name})
             elif self.path == "/api/delete":
                 name = os.path.basename(d.get("file", ""))
-                for fp in (os.path.join(OUT, name), os.path.join(OUT, name + ".json"), os.path.join(VTHUMBS, name + ".jpg")):
+                for fp in (os.path.join(OUT, name), os.path.join(OUT, name + ".json"), os.path.join(VTHUMBS, name + ".jpg"),
+                           os.path.join(VTHUMBS, name + ".last.jpg"), os.path.join(FRAMES, name + ".last.png")):
                     try:
                         os.remove(fp)
                     except OSError:

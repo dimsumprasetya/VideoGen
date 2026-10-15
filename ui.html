@@ -71,6 +71,7 @@ nav a,nav select,nav button{flex-shrink:0}
 .beat{font-size:11px;padding:1px 8px;border-radius:99px;background:#262932;color:var(--tx);font-weight:600;margin-left:6px;white-space:nowrap}
 .beat.a1{background:#13283a}.beat.a2{background:#2e1f12}.beat.a3{background:#16301d}
 .trl{font-size:11px;color:var(--mut);margin:-4px 0 10px 16px;border-left:2px dashed #3a3f4b;padding:2px 0 2px 10px}.trl b{color:var(--tx);font-weight:600}
+.sfr{display:flex;gap:8px;align-items:center}.sfr img{width:44px;aspect-ratio:9/16;object-fit:cover;border-radius:5px;background:#000;cursor:pointer;flex:0 0 auto}.sst{font-size:12px}
 .cw{grid-column:1/-1;font-size:12px;color:var(--warn)}.cw:empty{display:none}.chkbox{margin-top:10px;font-size:12px}.chkbox div{margin-top:4px;color:var(--warn)}.chkbox .hint{color:var(--mut)}
 .guide{margin-top:12px;font-size:12px;color:var(--mut)}.guide summary{cursor:pointer;color:var(--tx)}.guide ul{margin:4px 0 8px;padding-left:18px}.guide b{color:var(--tx)}
 .acts{margin-top:10px;font-size:12px}.acts .r{display:flex;justify-content:space-between;gap:6px;margin-top:6px}.acts .pb i.a2{background:#c9772f}.acts .pb i.a3{background:var(--ok)}
@@ -250,7 +251,7 @@ p.chars=(p.chars||[]).map(c=>Object.assign({id:uid(),name:"",look:c.desc||"",war
 p.locs=(p.locs||[]).map(c=>Object.assign({id:uid(),name:"",desc:"",job:"",img:""},c));p.props=p.props||[];
 if(!p.scenes.length&&(d?.panels||[]).length)p.scenes=d.panels.map(x=>({id:x.id||uid(),duration:x.dur||5,action:x.desc||"",visual:x.desc||"",loc:x.loc||"",chars:x.chars||[],shot:x.shot,cam:x.cam,sketch:{job:x.job||"",img:x.img||""}}));
 p.scenes=p.scenes.map(s=>Object.assign({id:uid(),duration:5,location:"",time:"",action:"",dialog:"",onscreen_text:"",visual:"",chars:[],loc:"",props:[],shot:"Medium",cam:"Static",
-act:0,beat:"",purpose:"",link_in:"",first_frame:"",last_frame:"",transition_out:"cut",cont:"",angle:"Eye level",dir:"static",sound:"",
+act:0,beat:"",purpose:"",link_in:"",first_frame:"",last_frame:"",transition_out:"cut",cont:"",angle:"Eye level",dir:"static",sound:"",start:"auto",
 sketch:{job:"",img:""},prompt:"",takes:[],take:"",use:true,tin:0,tout:0,sub:""},fromLLM(s))).map(s=>Object.assign(s,{shot:normV(s.shot,SHOTS,"Medium shot"),angle:s.shot=="Top-down"?"Bird's eye":normV(s.angle,ANGLES,"Eye level"),
 cam:normV(s.cam,CAMS,"Static"),dir:normV(s.dir,DIRS.map(x=>x[0]),"static"),transition_out:normV(s.transition_out,TRS.map(x=>x[0]),"cut")}));
 delete p.panels;delete p.style;return p}
@@ -326,7 +327,7 @@ try{js=await api("/api/jobs/query",{ids});if(Array.isArray(js)&&P===pj)pollApply
 finally{const act=Array.isArray(js)&&js.some(j=>j.status=="queued"||j.status=="running");pollSoon(act||waitIds().length?2000:6000)}}  // sibuk 2 dtk, diam 6 dtk
 function pollApply(js,t0){JM={};js.forEach(j=>JM[j.id]=j);const first=!polled;polled=true;
 let ch=false;const fix=(o,fk="img")=>{if(!o||!o.job||o[fk]||o.error)return;const j=JM[o.job];
-if(j&&j.status=="done"&&j.file){o[fk]=j.file;ch=true}else if(j&&j.status=="error"){o.error=j.error;ch=true}else if(!j&&!first&&(o.t||0)<t0-2000){o.error="Job hilang (aplikasi sempat restart). Ulangi.";ch=true}};
+if(j&&j.status=="done"&&j.file){o[fk]=j.file;if(j.first_used)o.from=j.first_used;if(j.note)o.note=j.note;ch=true}else if(j&&j.status=="error"){o.error=j.error;ch=true}else if(!j&&!first&&(o.t||0)<t0-2000){o.error="Job hilang (aplikasi sempat restart). Ulangi.";ch=true}};
 P.chars.forEach(x=>fix(x));P.locs.forEach(x=>fix(x));Object.values(P.styleThumbs||{}).forEach(x=>fix(x));P.scenes.forEach(s=>{fix(s.sketch);s.takes.forEach(t=>{fix(t,"file");if(t.file&&!s.take){s.take=t.file}})});
 const E=P.edit,lost=(id,t)=>id&&!JM[id]&&!first&&(t||0)<t0-2000;
 if(lost(E.mjob,E.mt)){E.mjob="";$("e-mmsg").textContent="Job musik hilang (aplikasi sempat restart). Ulangi.";ch=true}
@@ -516,9 +517,10 @@ $("s-list").innerHTML=P.scenes.map((x,i)=>`${actHead(x,i)}<div class="sc s2"><di
 <div class="cw" id="cw${i}"></div></div>${trLine(x,i)}`).join("")
 ||`<div class="hint">Belum ada scene. ${P.story.trim()?'Klik "Tulis script dari storyline" di kiri':"Buat storyline di tahap 1 dulu"}, atau tambah manual dengan "+ Scene".</div>`;scrSum();scrCheck();$("n2").textContent=P.scenes.length?"":"Tulis script dulu."}
 /* pemeriksa continuity (aturan editing kontinuitas; tanpa AI). Satu scene = satu shot. */
+const locKey=s=>String(s.location||"").trim().toLowerCase()||s.loc;
 const WIDE=["Extreme long shot","Long shot","Full shot"],BRIDGE=["dissolve","fade to black","wipe","parallel cut","sound bridge","match cut"];
 function contCheck(){const S=P.scenes,n=S.length,per=S.map(()=>[]),glob=[];if(!n)return {per,glob};
-const locOf=s=>String(s.location||"").trim().toLowerCase()||s.loc,timeOf=s=>String(s.time||"").trim().toLowerCase();
+const locOf=locKey,timeOf=s=>String(s.time||"").trim().toLowerCase();
 S.forEach((s,i)=>{const pv=S[i-1],tr=pv?.transition_out||"cut",same=!!pv&&locOf(pv)==locOf(s),add=t=>per[i].push(t);
 if(i==0&&!WIDE.includes(s.shot)&&!S.slice(1,3).some(x=>locOf(x)==locOf(s)&&WIDE.includes(x.shot)))add("Pembuka belum memperlihatkan ruang & waktu: beri establishing shot (Long / Full shot) di awal babak 1.");
 if(pv&&!same&&!WIDE.includes(s.shot)&&!["match cut","eyeline match","parallel cut"].includes(tr)&&!["POV","Insert"].includes(s.shot))add(`Lokasi baru (${s.location||"?"}) tanpa establishing shot: pakai Long / Full shot, atau sambung dengan match cut.`);
@@ -652,9 +654,11 @@ const sent=t=>{t=String(t||"").trim();return t&&(/[.!?"]$/.test(t)?t:t+".")};
 const TOD={subuh:"pre-dawn",fajar:"dawn",pagi:"morning",siang:"midday",sore:"late afternoon",senja:"dusk",petang:"dusk",malam:"night","tengah malam":"midnight"};
 const todEN=t=>{t=String(t||"").trim();return TOD[t.toLowerCase()]||t};
 function compose(sc){const L=P.look,cs=scChars(sc),loc=scLoc(sc),pr=scProps(sc),i=P.scenes.indexOf(sc),pv=i>0?P.scenes[i-1]:null,tr=pv?.transition_out||"cut";
-const carry=pv&&CARRY[tr]?`${CARRY[tr]}${pv.last_frame?": "+String(pv.last_frame).trim().replace(/[.!?]+$/,""):""}.${pv.cont?" Keep continuity: "+sent(pv.cont):""}`:"";
+const chained=engFirst()&&chainWanted(i),fromLoc=engFirst()&&(sc.start||"auto")=="loc"&&scLoc(sc)?.img;
+const carry=chained?`The clip starts exactly on the given first frame (the last frame of the previous shot) and continues the action seamlessly${tr=="cut in"?`, the camera moving closer to a ${String(sc.shot||"").toLowerCase()}`:""}.${pv.cont?" Keep continuity: "+sent(pv.cont):""}`
+:fromLoc?"The clip starts on the given establishing image of the location; keep the set exactly as shown.":pv&&CARRY[tr]?`${CARRY[tr]}${pv.last_frame?": "+String(pv.last_frame).trim().replace(/[.!?]+$/,""):""}.${pv.cont?" Keep continuity: "+sent(pv.cont):""}`:"";
 return [L.style&&`Style: ${L.style}.`,`${sc.shot||"Medium shot"}, ${(sc.angle||"eye level").toLowerCase()}, camera ${(sc.cam||"static").toLowerCase()}.`,carry,
-sc.first_frame&&`Opening frame: ${sent(sc.first_frame)}`,sent(sc.visual||sc.action),DIRTXT[sc.dir]&&`Screen direction: the main subject ${DIRTXT[sc.dir]}.`,sc.last_frame&&`Ending frame: ${sent(sc.last_frame)}`,
+!chained&&sc.first_frame&&`Opening frame: ${sent(sc.first_frame)}`,sent(sc.visual||sc.action),DIRTXT[sc.dir]&&`Screen direction: the main subject ${DIRTXT[sc.dir]}.`,sc.last_frame&&`Ending frame: ${sent(sc.last_frame)}`,
 cs.map(c=>`${c.name}: ${c.look}${c.wardrobe?", wearing "+c.wardrobe:""}${c.makeup&&!/^none$/i.test(c.makeup)?", "+c.makeup:""}.`).join(" "),
 loc&&`Setting: ${loc.name}, ${loc.desc}.`,sc.time&&`Time of day: ${todEN(sc.time)}.`,pr.length&&`Props: ${pr.map(p=>p.name+(p.desc?" ("+p.desc+")":"")).join(", ")}.`,
 L.lighting&&`Lighting: ${L.lighting}, motivated by the light sources of the set and the time of day.`,L.palette&&`Color palette: ${L.palette}.`,L.camera&&`Camera language: ${L.camera}.`,
@@ -682,6 +686,7 @@ $("v-engine").onchange=()=>{P.prod.engine=$("v-engine").value;save();prodSide();
 $("v-audio").onchange=()=>{P.prod.audio=$("v-audio").checked;save();prodSide();prodRender()};$("v-speak").onchange=()=>{P.prod.speak=$("v-speak").checked;save();prodRender()};$("v-aspect").onchange=()=>{P.prod.aspect=$("v-aspect").value;save()};$("v-res").onchange=()=>{P.prod.resolution=$("v-res").value;save()};
 function prodRender(){
 $("v-list").innerHTML=P.scenes.map((s,i)=>`${actHead(s,i)}<div class="sc s4"><div class="c"><b>Scene ${i+1} · ${s.duration} dtk${beatTag(s)}</b><span class="hint">${esc(SHOTID[s.shot]||s.shot)} · ${esc(s.angle)} · ${esc(s.cam)}</span>
+<label class="hint">Frame pertama</label><select onchange="P.scenes[${i}].start=this.value;save();prodRender()">${opts(START,s.start||"auto")}</select><div class="sst">${startInfo(i)}</div>
 <textarea style="height:150px" oninput="P.scenes[${i}].prompt=this.value;save()">${esc(promptOf(s))}</textarea>
 <div class="btns"><button ${s.takes.some(t=>pend(t,"file"))||!comfyReady()||(!P.prod.engine&&!ST.has_key)?"disabled":""} title="${!comfyReady()?NO_C:!P.prod.engine&&!ST.has_key?"Seedance butuh API key akun Comfy (⚙ Pengaturan).":""}" onclick="genTake(${i})">${s.takes.some(t=>pend(t,"file"))?"Sedang dibuat…":s.takes.some(t=>t.file)?"Take baru":"Generate take"}</button>${s.prompt?`<button class="sec" onclick="P.scenes[${i}].prompt='';save();prodRender()" title="Susun ulang dari script + breakdown">↺ Prompt otomatis</button>`:""}</div></div>
 <div class="c"><span class="hint">Take (klik video untuk putar, pilih satu)</span><div class="takes">${s.takes.map((t,k)=>`<div class="take ${t.file&&t.file==s.take?"on":""}">
@@ -689,10 +694,31 @@ ${t.file?`${vthumb(t.file)}<label class="chk" style="margin-top:3px"><input type
 :`<div class="st">${jobState(t)}</div>`}<span class="x" onclick="delTake(${i},${k})" title="hapus take">✕</span></div>`).join("")||`<span class="hint">Belum ada take.</span>`}</div></div></div>${trLine(s,i)}`).join("")
 ||`<div class="hint">Belum ada scene (tahap 2).</div>`;const left=P.scenes.filter(s=>!s.take).length;$("n4").textContent=left?`${left} scene belum punya take terpilih.`:""}
 function delTake(i,k){const s=P.scenes[i],t=s.takes[k];if(!confirm("Hapus take ini dari scene?"))return;s.takes.splice(k,1);if(s.take==t.file)s.take=s.takes.find(x=>x.file)?.file||"";save();prodRender()}
+/* continuity antar klip: frame terakhir take scene sebelumnya = frame pertama klip ini (image-to-video) */
+const CHAIN_TR=["cut","match on action","cut in"];  // aksi berlanjut di ruang yang sama
+const engFirst=()=>P.prod.engine?!!engMeta()?.first_frame:!!cfg.i2v;
+const START=[["auto","Otomatis (sambung bila aksi berlanjut di lokasi sama)"],["prev","Frame terakhir scene sebelumnya"],["loc","Gambar lokasi (tahap 3)"],["none","Teks saja"]];
+function chainWanted(i){const s=P.scenes[i],pv=P.scenes[i-1],m=s.start||"auto";if(!pv||m=="none"||m=="loc")return false;
+return m=="prev"||CHAIN_TR.includes(pv.transition_out||"cut")&&locKey(pv)==locKey(s)}
+function startOf(i){const s=P.scenes[i],pv=P.scenes[i-1];if(!engFirst())return null;
+if((s.start||"auto")=="loc"){const l=scLoc(s);return l?.img?{file:l.img,src:"loc"}:{missing:"loc"}}
+if(!chainWanted(i))return null;if(pv.take)return {file:pv.take,src:"prev"};
+const pj=pv.takes.slice().reverse().find(t=>t.job&&!t.file&&!t.error);return pj?{job:pj.job,src:"prev"}:{missing:"prev"}}
+function startInfo(i){const s=P.scenes[i],pv=P.scenes[i-1],st=startOf(i),cur=s.takes.find(t=>t.file&&t.file==s.take);
+if(!engFirst())return `<span class="hint">Mesin ini tidak menerima frame pertama: klip dibuat dari teks saja.</span>`;
+const warn=cur&&chainWanted(i)&&pv?.take&&cur.from!=pv.take?`<div class="err">⚠ Take terpilih ${cur.from?"disambung dari take lain":"tidak disambung dari take"} scene ${i}. Generate take baru supaya nyambung.</div>`:"";
+if(!st)return `<span class="hint">${i?"Tidak disambung: klip":"Klip pertama"} dibuat dari teks saja${i&&!chainWanted(i)&&(s.start||"auto")=="auto"?` (transisi "${esc(trName(pv.transition_out))}"${locKey(pv)!=locKey(s)?" / lokasi berganti":""})`:""}.</span>${warn}`;
+if(st.missing)return `<span class="err">${st.missing=="loc"?"Lokasi scene ini belum punya gambar referensi (tahap 3).":`Scene ${i} belum punya take: generate scene ${i} dulu, frame terakhirnya jadi frame pertama klip ini.`}</span>`;
+if(st.job)return `<span class="hint">Menunggu take scene ${i} selesai; frame terakhirnya jadi frame pertama klip ini.</span>`;
+const md=P.prod.model||$("v-model").value,fb=!P.prod.engine&&cfg.i2v_models?.length&&!cfg.i2v_models.includes(md)?`<div class="hint">Model ${esc(md)} tidak punya versi image-to-video; klip yang disambung memakai ${esc(cfg.i2v_models.find(m=>m.includes("fast"))||cfg.i2v_models[0])}.</div>`:"";
+return fb+`<div class="sfr"><img src="${st.src=="loc"?"/outputs/"+encodeURIComponent(st.file):"/api/lastframe?f="+encodeURIComponent(st.file)}" alt="" onclick="lbox('${esc(st.file)}')"><span class="hint">${st.src=="loc"?"Mulai dari gambar lokasi":`Mulai dari frame terakhir take scene ${i}`} → wajah, kostum & posisi tetap sama.</span></div>${warn}`}
 function takeBody(s){const pd=P.prod;return {prompt:promptOf(s),workflow:pd.engine,model:pd.model||$("v-model").value,aspect:pd.aspect||$("v-aspect").value,resolution:pd.resolution||$("v-res").value,duration:s.duration,seed:-1,audio:pd.audio,ref:PN+"/scene"}}
 function genTake(i,quiet){return once("take"+P.scenes[i].id,()=>genTake_(i,quiet))}
-async function genTake_(i,quiet){const s=P.scenes[i];if(!quiet&&P.prod.engine&&!(await needModels("prod")))return false;const r=await api("/api/generate",takeBody(s));if(r.error){if(!quiet)alert(r.error);return false}
-s.takes.push({job:r.id,t:Date.now(),file:"",error:""});save();if(!quiet){await poll();prodRender()}return true}
+async function genTake_(i,quiet){const s=P.scenes[i];if(!quiet&&P.prod.engine&&!(await needModels("prod")))return false;
+let st=startOf(i);if(st?.missing){if(quiet||!confirm((st.missing=="loc"?"Lokasi scene ini belum punya gambar referensi.":`Scene ${i} belum punya take, jadi klip ini tidak bisa disambung dari frame terakhirnya.`)+"\n\nLanjut buat dari teks saja?"))return quiet?genTakeText(i):false;st=null}
+const r=await api("/api/generate",Object.assign(takeBody(s),st?{first_file:st.file||"",first_job:st.job||""}:{}));if(r.error){if(!quiet)alert(r.error);return false}
+s.takes.push({job:r.id,t:Date.now(),file:"",error:"",from:st?.file||""});save();if(!quiet){await poll();prodRender()}return true}
+async function genTakeText(i){const s=P.scenes[i],r=await api("/api/generate",takeBody(s));if(r.error)return false;s.takes.push({job:r.id,t:Date.now(),file:"",error:""});save();return true}
 $("v-all").onclick=async()=>{const todo=P.scenes.map((s,i)=>i).filter(i=>!P.scenes[i].takes.some(t=>t.file||(t.job&&!t.error)));
 if(!todo.length)return alert("Semua scene sudah punya take. Klik 'Generate take' di scene tertentu untuk take tambahan.");
 if(!P.prod.engine&&!confirm(`Seedance memakai kredit Comfy untuk ${todo.length} scene. Lanjut?`))return;if(P.prod.engine&&!(await needModels("prod")))return;

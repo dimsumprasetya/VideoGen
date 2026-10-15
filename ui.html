@@ -36,7 +36,7 @@ h3{font-size:13px;margin:0 0 6px}
 .sc .c{display:flex;flex-direction:column;gap:5px;min-width:0}.sc label{margin:0}
 .s2{grid-template-columns:140px 1fr 1fr}.s3{grid-template-columns:1fr 1fr 150px}.s4{grid-template-columns:1fr 1.2fr}.s5{grid-template-columns:150px 1fr}
 .takes{display:flex;gap:8px;flex-wrap:wrap}.take{width:104px;border:2px solid var(--line);border-radius:8px;padding:4px;font-size:11px;position:relative}
-.take.on{border-color:var(--ac)}.take video{width:100%;aspect-ratio:9/16;object-fit:cover;border-radius:5px;background:#000;cursor:pointer;display:block}
+.take.on{border-color:var(--ac)}.take video,.take img{width:100%;aspect-ratio:9/16;object-fit:cover;border-radius:5px;background:#000;cursor:pointer;display:block}
 .take .st{height:100%;aspect-ratio:9/16;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--mut);padding:4px}
 .take .x{position:absolute;top:2px;right:5px;cursor:pointer;color:var(--mut)}
 .next{flex:0 0 auto;display:flex;justify-content:flex-end;gap:12px;align-items:center;padding:10px 20px;border-top:1px solid var(--line);background:var(--panel)}
@@ -191,7 +191,8 @@ const esc=s=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>
 const uid=()=>Math.random().toString(36).slice(2,9);
 const store=(k,v)=>{try{if(v===undefined)return localStorage.getItem(k)||"";localStorage.setItem(k,v)}catch(e){return ""}};
 const api=(p,b)=>fetch(p,b===undefined?{}:{method:"POST",headers:{"X-Studio":"1"},body:JSON.stringify(b)})
-.then(r=>{if(r.status==401&&p!="/api/login")location.reload();return r.json()}).catch(e=>({error:"Aplikasi tidak menjawab: "+e.message}));
+.then(r=>{if(r.status==401&&p!="/api/login")location.reload();return r.json()}).then(j=>{if((p=="/api/generate"||p=="/api/render")&&!j.error)pollSoon(400);return j})
+.catch(e=>({error:"Aplikasi tidak menjawab: "+e.message}));
 const isImg=f=>/\.(png|jpe?g|webp)$/i.test(f||""),isAud=f=>/\.(mp3|wav|flac|ogg|m4a|opus)$/i.test(f||""),isVid=f=>/\.(mp4|webm|mov|mkv)$/i.test(f||"");
 const SHOTS=["Wide","Medium","Close-up","Extreme close-up","Over-the-shoulder","POV","Top-down"];
 const CAMS=["Static","Pan","Tilt","Push-in","Pull-out","Tracking","Handheld","Orbit"];
@@ -216,7 +217,7 @@ function save(){navDone();clearTimeout(saveT);$("saved").textContent="Menyimpan�
 saveT=setTimeout(async()=>{const r=await api("/api/project",{name:PN,data:P});$("saved").textContent=r.error?r.error:"Tersimpan"},500)}
 async function listProjects(sel){const ns=await api("/api/projects");if(!Array.isArray(ns)||!ns.length){ns.length=0;ns.push("Proyek 1")}
 $("pj").innerHTML=ns.map(n=>`<option>${esc(n)}</option>`).join("");$("pj").value=ns.includes(sel)?sel:ns[0];await loadProject($("pj").value)}
-async function loadProject(n){PN=n;store("pj",n);P=migrate(await api("/api/project?name="+encodeURIComponent(n)));renderAll()}
+async function loadProject(n){PN=n;store("pj",n);P=migrate(await api("/api/project?name="+encodeURIComponent(n)));renderAll();if(polled)pollSoon(50)}
 $("pj").onchange=()=>loadProject($("pj").value);
 $("pjnew").onclick=async()=>{const n=(prompt("Nama proyek baru:")||"").replace(/[^\w\- ]/g,"").trim();if(!n)return;P=BLANK();PN=n;await api("/api/project",{name:n,data:P});listProjects(n);tab("idea")};
 $("pjdel").onclick=async()=>{if(!confirm("Hapus proyek "+PN+"? (video di folder outputs tetap ada)"))return;await api("/api/project",{name:PN,delete:1});listProjects()};
@@ -271,10 +272,18 @@ function renderAll(){devLoad();lookLoad();prodLoad();editLoad();renderTab(TAB);n
 function navDone(){syncButtons();const sc=P.scenes,ok={idea:!!P.story.trim(),scr:sc.length>0,bd:P.bd||P.chars.length>0,prod:sc.length>0&&sc.every(s=>s.take),edit:!!P.edit.final};
 document.querySelectorAll("nav [data-tab]").forEach(a=>a.classList.toggle("ok",!!ok[a.dataset.tab]))}
 function typing(){const a=document.activeElement;return a&&(a.tagName=="TEXTAREA"||a.tagName=="INPUT"&&a.type!="checkbox"&&a.type!="radio"&&a.type!="range"||a.tagName=="SELECT")}
+const vthumb=(f,cls)=>`<img class="${cls||""}" src="/api/thumb?f=${encodeURIComponent(f)}" alt="" loading="lazy" onclick="lbox('${esc(f)}')" onerror="vtFail(this,'${esc(f)}')">`;
+function vtFail(el,f){const v=document.createElement("video");v.className=el.className;v.muted=true;v.preload="metadata";v.src="/outputs/"+encodeURIComponent(f)+"#t=0.5";v.onclick=()=>lbox(f);el.replaceWith(v)}  // ffmpeg belum ada
 function lbox(f){const L=$("lb");L.innerHTML=isImg(f)?`<img src="/outputs/${esc(f)}">`:`<video src="/outputs/${esc(f)}" controls autoplay loop></video>`;L.style.display="flex"}
 
 /* ---------------- job: hubungkan hasil ComfyUI/render ke item proyek */
-async function poll(){const t0=Date.now(),js=await api("/api/jobs");if(!Array.isArray(js))return;JM={};js.forEach(j=>JM[j.id]=j);const first=!polled;polled=true;
+function waitIds(){const ids=[],add=(o,fk="img")=>{if(o&&o.job&&!o[fk]&&!o.error)ids.push(o.job)};P.chars.forEach(x=>add(x));P.locs.forEach(x=>add(x));
+Object.values(P.styleThumbs||{}).forEach(x=>add(x));P.scenes.forEach(s=>{add(s.sketch);s.takes.forEach(t=>add(t,"file"))});if(P.edit.mjob)ids.push(P.edit.mjob);if(P.edit.rjob)ids.push(P.edit.rjob);return ids}
+let pollT=0;const pollSoon=ms=>{clearTimeout(pollT);pollT=setTimeout(poll,ms??300)};
+async function poll(){clearTimeout(pollT);const t0=Date.now(),pj=P,ids=waitIds();let js=null;
+try{js=await api("/api/jobs/query",{ids});if(Array.isArray(js)&&P===pj)pollApply(js,t0)}
+finally{const act=Array.isArray(js)&&js.some(j=>j.status=="queued"||j.status=="running");pollSoon(act||waitIds().length?2000:6000)}}  // sibuk 2 dtk, diam 6 dtk
+function pollApply(js,t0){JM={};js.forEach(j=>JM[j.id]=j);const first=!polled;polled=true;
 let ch=false;const fix=(o,fk="img")=>{if(!o||!o.job||o[fk]||o.error)return;const j=JM[o.job];
 if(j&&j.status=="done"&&j.file){o[fk]=j.file;ch=true}else if(j&&j.status=="error"){o.error=j.error;ch=true}else if(!j&&!first&&(o.t||0)<t0-2000){o.error="Job hilang (aplikasi sempat restart). Ulangi.";ch=true}};
 P.chars.forEach(x=>fix(x));P.locs.forEach(x=>fix(x));Object.values(P.styleThumbs||{}).forEach(x=>fix(x));P.scenes.forEach(s=>{fix(s.sketch);s.takes.forEach(t=>{fix(t,"file");if(t.file&&!s.take){s.take=t.file}})});
@@ -305,15 +314,17 @@ if(LLMP.active)out.push(`✍ AI ${LLMP.stage=="Menulis"?LLMP.pct+"%":"memuat…"
 if(LLM.pull?.active&&LLM.pull.total)out.push(`⬇ AI ${Math.round(100*LLM.pull.done/LLM.pull.total)}%`);$("act").textContent=out.join(" · ")}
 
 /* ---------------- status aplikasi, banner, pengaturan */
-async function status(){const s=await api("/api/status");if(s.error)return;const chg=ST.comfy!==s.comfy||ST.has_key!==s.has_key;ST=s;
-if(chg){if(typing())needRender=true;else renderTab(TAB)}  // tombol per item ikut aktif/nonaktif saat ComfyUI/API key berubahif(VER0===null)VER0=s.version;
-api("/api/models").then(m=>{DLST=m.dl||{};if(DLST.active)DLON=true;actChip()});
+async function status(){const s=await api("/api/status");if(s.error)return;const up=s.comfy&&!ST.comfy&&!cfg.live,chg=ST.comfy!==s.comfy||ST.has_key!==s.has_key;ST=s;
+if(up||chg)(async()=>{const did=up&&await loadCfg();  // ComfyUI baru tersambung: daftar model/aspek Seedance dibaca ulang (sekali, bukan tiap 4 dtk)
+if(!did&&chg){if(typing())needRender=true;else renderTab(TAB)}})();  // tombol per item ikut aktif/nonaktif saat ComfyUI/API key berubah
+if(VER0===null)VER0=s.version;
+DLST=s.dl||{};if(DLST.active)DLON=true;actChip();
 const b=[];if(!s.comfy)b.push(`<div class="w">ComfyUI belum tersambung (dibutuhkan untuk gambar &amp; video). <button class="sec" onclick="openSet()">Pengaturan</button></div>`);
 if(DLON){tabModels();if($("set").style.display=="block")setModels()}
 if(VER0!==s.version&&s.version)b.push(`<div class="i">Aplikasi sudah diperbarui ke versi ${esc(s.version)}. <button onclick="location.reload()">Muat ulang</button></div>`);
-$("banner").innerHTML=b.join("");$("c-st").innerHTML=s.comfy?`<span class="okc">tersambung</span>`:`<span class="err">belum tersambung</span>`;$("c-log").textContent=s.log||"";
-$("k-st").textContent=s.has_key?"(tersimpan)":"(belum diisi)";$("u-st").innerHTML=`Versi ${esc(s.version||"?")} · branch ${esc(s.branch||"")} · auto-update ${s.auto_update?"aktif":"mati"}`;
-if(s.comfy&&!cfg.live)loadCfg();syncButtons()}
+const bh=b.join("");if($("banner").innerHTML!=bh)$("banner").innerHTML=bh;$("c-st").innerHTML=s.comfy?`<span class="okc">tersambung</span>`:`<span class="err">belum tersambung</span>`;$("c-log").textContent=s.log||"";
+$("k-st").textContent=s.has_key?"(tersimpan)":"(belum diisi)";if(Date.now()-($("u-st").dataset.t||0)>30000)$("u-st").innerHTML=`Versi ${esc(s.version||"?")} · branch ${esc(s.branch||"")} · auto-update ${s.auto_update?"aktif":"mati"}`;
+syncButtons()}
 function openSet(){$("set").style.display="block";setModels();llmStatus();remoteBox()}
 async function remoteBox(msg){const el=$("r-body");
 if(ST.remote){$("r-st").innerHTML=`<span class="okc">terhubung dari perangkat ini</span>`;
@@ -335,15 +346,16 @@ if(r.restart){remoteBox("Menyalakan ulang server… halaman dimuat ulang otomati
 $("setbtn").onclick=()=>$("set").style.display=="block"?$("set").style.display="none":openSet();
 $("c-find").onclick=async()=>{$("c-msg").textContent="Mencari…";const r=await api("/api/comfy/save",{path:$("c-path").value});$("c-msg").textContent=r.error||"Tersimpan. Menyalakan ComfyUI, tunggu sebentar…"};
 $("k-save").onclick=async()=>{const r=await api("/api/apikey",{key:$("k-key").value});$("k-key").value="";$("k-st").textContent=r.has_key?"(tersimpan)":"(belum diisi)"};
-$("u-check").onclick=async()=>{$("u-st").textContent="Mengecek…";const r=await api("/api/update/check",{});
+$("u-check").onclick=async()=>{$("u-st").dataset.t=Date.now();$("u-st").textContent="Mengecek…";const r=await api("/api/update/check",{});
 $("u-st").textContent=r.error||(!r.latest?"Tidak bisa menghubungi GitHub.":r.available?`Versi baru ${r.latest} tersedia; dipasang otomatis saat aplikasi tidak sedang bekerja (maks. ~10 menit). Atau jalankan update.bat.`:`Sudah versi terbaru (${r.current}).`)};
-async function loadCfg(){const c=await api("/api/config");if(c.error)return;cfg=c;
+let CFGSIG="";
+async function loadCfg(){const c=await api("/api/config");if(c.error)return;const sig=JSON.stringify(c);if(sig==CFGSIG)return;CFGSIG=sig;cfg=c;
 const wfs=k=>cfg.workflows.filter(w=>w.kind==k);
 fillSel($("m-wf"),cfg.workflows.map(w=>[w.file,w.label]),$("m-wf").value);
 fillSel($("b-imgwf"),wfs("image").map(w=>[w.file,w.label]),P.imgwf);fillSel($("e-mwf"),wfs("audio").map(w=>[w.file,w.label]),P.edit.mwf);
 fillSel($("v-engine"),[["","Seedance cloud (bayar kredit Comfy)"],...wfs("video").map(w=>[w.file,w.label])],P.prod.engine);
 fillSel($("v-model"),cfg.models.map(m=>[m.id,m.label]),P.prod.model);fillSel($("v-aspect"),cfg.aspects.map(a=>[a,a]),P.prod.aspect);fillSel($("v-res"),cfg.resolutions.map(a=>[a,a]),P.prod.resolution);
-renderTab(TAB);if(TAB=="prod")prodSide()}
+renderTab(TAB);if(TAB=="prod")prodSide();return true}
 function fillSel(el,opts,val){el.innerHTML=opts.map(([v,l])=>`<option value="${esc(v)}">${esc(l)}</option>`).join("");if(opts.some(o=>o[0]==val))el.value=val}
 let DLON=false;
 async function modelBox(wf,el){if(!wf){el.innerHTML="";return null}const r=await api("/api/models?workflow="+encodeURIComponent(wf)),d=r.dl||{};DLON=!!d.active;
@@ -466,10 +478,11 @@ function bdDel(k,i){if(!confirm("Hapus?"))return;const id=P[k][i].id;P[k].splice
 const imgBox=t=>t.img?`<div class="img" onclick="lbox('${esc(t.img)}')"><img src="/outputs/${esc(t.img)}"></div>`:`<div class="img">${jobState(t)||"Belum ada gambar"}</div>`;
 const fld=(path,v,ph,ta,h)=>ta?`<textarea placeholder="${ph}" style="height:${h||60}px" oninput="${path}=this.value;save()">${esc(v)}</textarea>`:`<input placeholder="${ph}" value="${esc(v)}" oninput="${path}=this.value;save()">`;
 /* ---- gaya visual: kartu thumbnail + pratinjau asli */
-function stRender(){const cur=P.look.styleId||"";$("g-styles").innerHTML=STYLES.map(st=>{const pv=P.styleThumbs[st.id]||{};
+let STSIG="";
+function stRender(){const cur=P.look.styleId||"",sig=JSON.stringify([PN,cur,!!P.look.style,comfyReady(),P.styleThumbs]);if(sig==STSIG&&$("g-styles").firstChild)return;STSIG=sig;$("g-styles").innerHTML=STYLES.map(st=>{const pv=P.styleThumbs[st.id]||{};
 const ph=st.photo,credit=ph?`Foto: ${ph.by||"kontributor"} · Pexels`:"";
 return `<div class="stc ${cur==st.id?"on":""}" onclick="stPick('${st.id}')" title="${esc(st.desc+(credit?"\n"+credit:""))}"><div class="th">${pv.img?`<img src="/outputs/${esc(pv.img)}" alt=""><span class="tag">pratinjau</span>`:styleSVG(st)+
-(ph?`<img class="ph" alt="" loading="lazy" src="/api/stylethumb?pid=${ph.id}" style="${ph.css?"filter:"+ph.css:""}" onload="this.nextElementSibling.style.display='block'" onerror="phFail(this,${ph.id})"><a class="pxt" href="${esc(ph.page)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="${esc(credit)}">Pexels</a>`:"")}
+(ph?`<img class="ph" alt="" loading="lazy" src="/api/stylethumb?pid=${ph.id}" style="${ph.css?"filter:"+ph.css:""}" onload="this.nextElementSibling.style.display='block';this.previousElementSibling?.tagName=='svg'&&this.previousElementSibling.remove()" onerror="phFail(this,${ph.id})"><a class="pxt" href="${esc(ph.page)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="${esc(credit)}">Pexels</a>`:"")}
 ${pv.job&&!pv.img?`<div class="ov">${jobState(pv)}</div>`:""}<button class="pv" ${pend(pv)||!comfyReady()?"disabled":""} onclick="event.stopPropagation();stPreview('${st.id}')" title="${!comfyReady()?NO_C:"Pratinjau asli dengan karakter Anda (Z-Image)"}">${pend(pv)?"…":"▶"+(pv.img?" ulang":"")}</button></div>
 <div class="nm">${cur==st.id?"✓ ":""}${esc(st.name)}</div><div class="ds">${esc(st.desc)}</div></div>`}).join("")+
 `<div class="stc cus ${cur?"":P.look.style?"on":""}" onclick="stPick('')"><div class="th">✎</div><div class="nm">${!cur&&P.look.style?"✓ ":""}Gaya sendiri</div><div class="ds">Tulis gaya di kolom kiri.</div></div>`}
@@ -533,7 +546,7 @@ $("v-list").innerHTML=P.scenes.map((s,i)=>`<div class="sc s4"><div class="c"><b>
 <textarea style="height:150px" oninput="P.scenes[${i}].prompt=this.value;save()">${esc(promptOf(s))}</textarea>
 <div class="btns"><button ${s.takes.some(t=>pend(t,"file"))||!comfyReady()||(!P.prod.engine&&!ST.has_key)?"disabled":""} title="${!comfyReady()?NO_C:!P.prod.engine&&!ST.has_key?"Seedance butuh API key akun Comfy (⚙ Pengaturan).":""}" onclick="genTake(${i})">${s.takes.some(t=>pend(t,"file"))?"Sedang dibuat…":s.takes.some(t=>t.file)?"Take baru":"Generate take"}</button>${s.prompt?`<button class="sec" onclick="P.scenes[${i}].prompt='';save();prodRender()" title="Susun ulang dari script + breakdown">↺ Prompt otomatis</button>`:""}</div></div>
 <div class="c"><span class="hint">Take (klik video untuk putar, pilih satu)</span><div class="takes">${s.takes.map((t,k)=>`<div class="take ${t.file&&t.file==s.take?"on":""}">
-${t.file?`<video src="/outputs/${esc(t.file)}#t=0.5" muted preload="metadata" onclick="lbox('${esc(t.file)}')"></video><label class="chk" style="margin-top:3px"><input type="radio" name="tk${i}" ${t.file==s.take?"checked":""} onchange="P.scenes[${i}].take='${esc(t.file)}';save();prodRender()">Pakai</label>`
+${t.file?`${vthumb(t.file)}<label class="chk" style="margin-top:3px"><input type="radio" name="tk${i}" ${t.file==s.take?"checked":""} onchange="P.scenes[${i}].take='${esc(t.file)}';save();prodRender()">Pakai</label>`
 :`<div class="st">${jobState(t)}</div>`}<span class="x" onclick="delTake(${i},${k})" title="hapus take">✕</span></div>`).join("")||`<span class="hint">Belum ada take.</span>`}</div></div></div>`).join("")
 ||`<div class="hint">Belum ada scene (tahap 2).</div>`;const left=P.scenes.filter(s=>!s.take).length;$("n4").textContent=left?`${left} scene belum punya take terpilih.`:""}
 function delTake(i,k){const s=P.scenes[i],t=s.takes[k];if(!confirm("Hapus take ini dari scene?"))return;s.takes.splice(k,1);if(s.take==t.file)s.take=s.takes.find(x=>x.file)?.file||"";save();prodRender()}
@@ -559,7 +572,7 @@ fillSel($("e-music"),[["","Tanpa musik"],...aud.map(f=>[f,f.replace(/^upload_\d+
 $("e-final").innerHTML=E.final?`<div class="final"><h2 style="margin-top:0">Video final</h2><video src="/outputs/${esc(E.final)}" controls></video>
 <div class="btns" style="margin-top:8px"><a href="/outputs/${esc(E.final)}" download><button class="sm">Unduh MP4</button></a><span class="hint">Tersimpan di folder outputs/${esc(E.final)}</span></div></div>`:"";
 let t=0;$("e-list").innerHTML=P.scenes.map((s,i)=>{const on=s.take&&s.use!==false;if(on)t+=(s.tout||s.duration)-(s.tin||0);
-return `<div class="sc s5" style="${on?"":"opacity:.5"}"><div class="c">${s.take?`<video class="thumb" src="/outputs/${esc(s.take)}#t=0.5" muted preload="metadata" onclick="lbox('${esc(s.take)}')"></video>`:`<span class="hint">Belum ada take (tahap 4)</span>`}</div>
+return `<div class="sc s5" style="${on?"":"opacity:.5"}"><div class="c">${s.take?vthumb(s.take,"thumb"):`<span class="hint">Belum ada take (tahap 4)</span>`}</div>
 <div class="c"><label class="chk"><input type="checkbox" ${on?"checked":""} ${s.take?"":"disabled"} onchange="P.scenes[${i}].use=this.checked;save();editRender()"><b>Scene ${i+1}</b><span class="hint">${esc(s.action).slice(0,120)}</span></label>
 <div class="row"><div><span class="hint">Mulai (dtk)</span><input type="number" min="0" step="0.1" value="${s.tin||0}" oninput="P.scenes[${i}].tin=+this.value;save()"></div>
 <div><span class="hint">Selesai (dtk, 0 = sampai akhir)</span><input type="number" min="0" step="0.1" value="${s.tout||0}" oninput="P.scenes[${i}].tout=+this.value;save()"></div></div>
@@ -582,5 +595,5 @@ clip_audio:E.ca,clip_vol:E.cv,music:E.music,music_vol:E.mv,subtitles:!!E.sub,ref
 if(r.error)return alert(r.error);E.rjob=r.id;E.rt=Date.now();$("e-msg").textContent="Merender… (biasanya < 1 menit)";save();editRender()};
 
 /* ---------------- mulai */
-(async()=>{await loadCfg();await listProjects(store("pj"));tab(store("tab")||"idea");status();llmStatus();setInterval(status,4000);poll();setInterval(poll,2500)})();
+(async()=>{await loadCfg();await listProjects(store("pj"));tab(store("tab")||"idea");status();llmStatus();setInterval(status,4000);poll()})();
 </script></body></html>

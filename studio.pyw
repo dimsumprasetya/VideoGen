@@ -39,11 +39,13 @@ def cfg():
 
 
 def comfy_alive(c):
+    """Port ComfyUI terbuka = hidup. Jangan menunggu jawaban HTTP: saat generate/memuat model ComfyUI bisa
+    lambat menjawab, dan dulu itu dianggap mati sehingga ComfyUI kedua dinyalakan berulang-ulang."""
     for p in c["comfy_ports"]:
         try:
-            urllib.request.urlopen("http://127.0.0.1:%d/system_stats" % p, timeout=2).read()
+            socket.create_connection(("127.0.0.1", int(p)), timeout=1).close()
             return True
-        except Exception:
+        except (OSError, ValueError):
             pass
     return False
 
@@ -112,11 +114,14 @@ def main():
     opened = "--no-window" in sys.argv
     next_update = time.time() + 60
     restart_self = False
+    misses, need = 0, 1  # saat start langsung; setelahnya 3x berturut-turut mati (15 dtk) baru dinyalakan
     try:
         while True:
             c = cfg()  # baca ulang: pengaturan dari UI langsung berlaku
-            if not comfy_alive(c) and (comfy is None or comfy.poll() is not None):
-                adopted = 0
+            alive = comfy_alive(c)
+            misses = 0 if alive else misses + 1
+            if not alive and misses >= need and (comfy is None or comfy.poll() is not None):
+                adopted = misses = 0
                 cmd, cwd = comfy_detect.detect(c)
                 if cmd:
                     log("start comfy: " + cmd)
@@ -124,6 +129,7 @@ def main():
                                              stdout=open(LOG, "a"), stderr=subprocess.STDOUT)
                 else:
                     log("ComfyUI tidak ditemukan; isi comfy_cmd di studio_config.json")
+            need = 3
             if app is None or app.poll() is not None:
                 log("start app.py")
                 exe = sys.executable.replace("pythonw", "python") if os.name == "nt" else sys.executable

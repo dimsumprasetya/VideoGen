@@ -9,7 +9,7 @@ import render
 import updater
 import remote
 import comfy_ws
-import json, os, queue, random, re, shutil, subprocess, sys, threading, time, uuid
+import json, os, queue, random, re, shutil, socket, subprocess, sys, threading, time, uuid
 import urllib.error, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, quote
@@ -19,6 +19,8 @@ OUT = os.path.join(BASE, "outputs")
 WF = os.path.join(BASE, "workflows")
 PROJ = os.path.join(BASE, "projects")
 THUMBS = os.path.join(BASE, "cache", "styles")  # foto contoh gaya (Pexels), diunduh sekali
+VTHUMBS = os.path.join(BASE, "cache", "thumbs")  # cuplikan JPG kecil dari video (pengganti <video> di daftar take)
+NOWIN = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 THUMB_FAIL = {}  # pexels id -> waktu gagal terakhir (jangan coba ulang terus-menerus)  # breakdown pra-produksi: projects/<nama>.json
 VIDEO_EXT = (".mp4", ".webm", ".mov", ".mkv")
 IMAGE_EXT = (".png", ".jpg", ".jpeg", ".webp")
@@ -95,39 +97,58 @@ def http_json(url, data=None, timeout=15):
 
 
 _EXTRA = {"t": 0.0, "ports": []}
+_CU = {"t": 0.0, "url": None}
+_CU_LOCK = threading.Lock()
 
 
-def _alive(port):
-    u = "http://127.0.0.1:%d" % port
+def _alive(u):
     try:
-        http_json(u + "/system_stats", timeout=2)
+        http_json(u + "/system_stats", timeout=4)
         return u
     except Exception:
         return None
 
 
-def comfy_url():
-    """URL ComfyUI yang hidup, atau None. Cadangan: cari port dari proses ComfyUI yang sedang jalan
-    (mis. dinyalakan aplikasi lain)."""
+def _port_open(u):
+    try:
+        pu = urlparse(u)
+        socket.create_connection((pu.hostname, pu.port or 80), timeout=0.5).close()
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def _find_comfy():
+    last = _CU["url"]
+    if last and _port_open(last):  # sudah pernah menjawab sebagai ComfyUI; sibuk generate = lambat menjawab, tetap hidup
+        return last
     env = os.environ.get("COMFYUI_URL", "").rstrip("/")  # sama seperti backend Luminar
-    if env:
-        try:
-            http_json(env + "/system_stats", timeout=2)
-            return env
-        except Exception:
-            pass
-    for p in CFG["comfy_ports"]:
-        u = _alive(p)
-        if u:
+    cands = ([env] if env else []) + ["http://127.0.0.1:%d" % p for p in CFG["comfy_ports"]]
+    for u in cands:
+        if _port_open(u) and _alive(u):
             return u
-    if time.time() - _EXTRA["t"] > 15:
+    if time.time() - _EXTRA["t"] > 120:  # PowerShell itu berat: jarang-jarang saja
         _EXTRA["t"] = time.time()
         _EXTRA["ports"] = [r["port"] for r in comfy_detect.running_comfy()]
     for p in _EXTRA["ports"]:
-        u = _alive(p)
-        if u:
+        u = "http://127.0.0.1:%d" % p
+        if u not in cands and _port_open(u) and _alive(u):
             return u
     return None
+
+
+def comfy_url():
+    """URL ComfyUI yang hidup, atau None (hasil disimpan 3 dtk). Cadangan: cari port dari proses ComfyUI yang
+    sedang jalan (mis. dinyalakan aplikasi lain). Hanya satu thread yang mengecek; yang lain memakai hasil terakhir."""
+    if time.time() - _CU["t"] < 3:
+        return _CU["url"]
+    if not _CU_LOCK.acquire(blocking=False):
+        return _CU["url"]
+    try:
+        _CU.update(url=_find_comfy(), t=time.time())
+    finally:
+        _CU_LOCK.release()
+    return _CU["url"]
 
 
 KEY_FILE = os.path.join(BASE, "api_key.txt")
@@ -159,13 +180,14 @@ def node_spec(base):
     """Input node Seedance menurut ComfyUI yang terpasang: {"names": set, "combos": {nama: [opsi]}} atau None."""
     if not base:
         return None
-    if _SPEC["base"] == base and _SPEC["spec"] and time.time() - _SPEC["t"] < 300:
+    if _SPEC["base"] == base and time.time() - _SPEC["t"] < (300 if _SPEC["spec"] else 60):
         return _SPEC["spec"]
     try:
         info = http_json(base + "/object_info/" + NODE, timeout=10).get(NODE)
     except Exception:
         info = None
     if not info:
+        _SPEC.update(t=time.time(), base=base, spec=None)  # node API belum terpasang: jangan ditanya tiap request
         return None
     names, combos = set(), {}
     for group in ("required", "optional"):
@@ -356,6 +378,21 @@ def find_videos(outputs):
     return vids or auds or imgs
 
 
+def free_ollama():
+    """VRAM 8 GB: keluarkan model Ollama (sisa menulis script/breakdown) sebelum ComfyUI memakai GPU."""
+    if BUSY["llm"]:
+        return
+    base = llm_base()
+    try:
+        with llm._req(base + "/api/ps", timeout=3) as r:
+            names = [m.get("name") or m.get("model") for m in json.loads(r.read().decode()).get("models", [])]
+        for n in filter(None, names):
+            with llm._req(base + "/api/generate", {"model": n, "keep_alive": 0}, timeout=20) as r:
+                r.read()
+    except Exception:
+        pass
+
+
 def run_job(job):
     prog = None
     job["started"] = time.time()
@@ -369,6 +406,7 @@ def run_job(job):
             missing = [m["file"] for m in (model_status(base, wf_meta(p["workflow"])) or []) if not m["present"]]
             if missing:
                 raise RuntimeError("Model belum ada di ComfyUI: %s -> Klik 'Unduh model yang kurang' di kotak model (kolom kiri tahap ini), lalu ulangi." % ", ".join(missing))
+            free_ollama()  # model lokal berjalan di GPU sendiri (Seedance cloud tidak perlu)
         graph = custom_graph(p["workflow"], p) if p.get("workflow") else build_graph(p, node_spec(base))
         job["status"] = "queued"
         job["progress"] = {"pct": 0, "stage": "Mengirim ke ComfyUI"}
@@ -472,6 +510,81 @@ def busy():
     return jobs or BUSY["llm"] > 0 or BUSY["render"] > 0 or DL["active"] or llm.PULL["active"]
 
 
+def log_tail(n=4):
+    """Baris terakhir studio.log tanpa membaca seluruh file (bisa sampai 5 MB)."""
+    try:
+        with open(os.path.join(BASE, "studio.log"), "rb") as f:
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - 4096))
+            return "\n".join(f.read().decode("utf-8", "replace").splitlines()[-n:])
+    except OSError:
+        return ""
+
+
+_WHICH = {}
+
+
+def has_tool(name):
+    """shutil.which dengan cache 60 dtk (dipanggil tiap /api/status)."""
+    t, v = _WHICH.get(name, (0.0, False))
+    if time.time() - t > 60:
+        v = bool(shutil.which(name))
+        _WHICH[name] = (time.time(), v)
+    return v
+
+
+def jobs_view(keep=None):
+    """Job (terbaru dulu) + posisi antrean & waktu berjalan. keep(job) -> bool menyaring."""
+    with LOCK:
+        jobs = sorted(JOBS.values(), key=lambda j: j["created"], reverse=True)
+    waiting = [j for j in reversed(jobs) if j["status"] == "queued" and not j.get("started")]
+    for n, j in enumerate(waiting, 1):
+        j["progress"] = {"pct": 0, "stage": "Antre ke-%d" % n}
+    now = time.time()
+    for j in jobs:
+        if j.get("started") and j["status"] in ("queued", "running"):
+            j["elapsed"] = int(now - j["started"])
+    return [j for j in jobs if keep is None or keep(j)]
+
+
+THUMB_SEM = threading.Semaphore(2)
+THUMB_BAD = set()
+
+
+def video_thumb(name):
+    """Path JPG kecil (lebar 360) dari frame ke-0.5 dtk sebuah video di outputs, dibuat sekali. None bila tidak bisa."""
+    try:
+        src = out_path(name)
+    except RuntimeError:
+        return None
+    if not src.lower().endswith(VIDEO_EXT) or src in THUMB_BAD or not has_tool("ffmpeg"):
+        return None
+    dst = os.path.join(VTHUMBS, os.path.basename(src) + ".jpg")
+    if os.path.exists(dst):
+        return dst
+    with THUMB_SEM:
+        if os.path.exists(dst):  # sudah dibuat thread lain
+            return dst
+        os.makedirs(VTHUMBS, exist_ok=True)
+        tmp = "%s.%d.tmp.jpg" % (dst, threading.get_ident())
+        for ss in (["-ss", "0.5"], []):  # klip < 0.5 dtk: frame pertama
+            try:
+                subprocess.run([shutil.which("ffmpeg") or "ffmpeg", "-v", "error", "-y"] + ss + ["-i", src, "-frames:v", "1",
+                                "-vf", "scale=360:-2", "-q:v", "5", tmp], capture_output=True, timeout=30,
+                               creationflags=NOWIN)
+            except (OSError, subprocess.SubprocessError):
+                break
+            if os.path.exists(tmp) and os.path.getsize(tmp):
+                os.replace(tmp, dst)
+                return dst
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        THUMB_BAD.add(src)
+    return None
+
+
 def save_meta(job):
     meta = {k: job[k] for k in ("id", "params", "file", "created")}
     with open(os.path.join(OUT, job["file"] + ".json"), "w", encoding="utf-8") as f:
@@ -536,11 +649,17 @@ def llm_run(d):
     with LOCK:
         busy = any(j["status"] in ("queued", "running") for j in JOBS.values())
     cb = comfy_url()
-    if cb and not busy:  # VRAM 8 GB: kosongkan model ComfyUI dulu supaya LLM tidak berebut VRAM
+    if cb and not busy:  # VRAM 8 GB: kosongkan model ComfyUI hanya bila VRAM memang kurang untuk LLM
         try:
-            http_json(cb + "/free", {"unload_models": True, "free_memory": True}, timeout=5)
+            dev = (http_json(cb + "/system_stats", timeout=3).get("devices") or [{}])[0]
+            need = dev.get("type") == "cuda" and dev.get("vram_free", 0) < 6.5e9  # qwen3:8b butuh ~6 GB
         except Exception:
-            pass
+            need = True
+        if need:
+            try:
+                http_json(cb + "/free", {"unload_models": True, "free_memory": True}, timeout=5)
+            except Exception:
+                pass
     task = {"ideas": llm.ideas, "storyline": llm.storyline, "script": llm.script,
             "breakdown": llm.breakdown, "dialog": llm.dialog}.get(d.get("task"))
     if not task:
@@ -752,13 +871,7 @@ class H(BaseHTTPRequestHandler):
         elif u.path == "/api/busy":
             self.send_json({"busy": busy()})
         elif u.path == "/api/status":
-            log = ""
-            try:
-                with open(os.path.join(BASE, "studio.log"), encoding="utf-8", errors="replace") as f:
-                    log = "\n".join(f.read().splitlines()[-4:])
-            except OSError:
-                pass
-            self.send_json({"comfy": bool(comfy_url()), "ffmpeg": bool(shutil.which("ffmpeg")), "log": log,
+            self.send_json({"comfy": bool(comfy_url()), "ffmpeg": has_tool("ffmpeg"), "log": log_tail(), "dl": DL,
                             "has_key": bool(api_key()), "version": updater.local_version()[:7],
                             "branch": updater.branch(), "auto_update": CFG.get("auto_update", True),
                             "remote": self.who == "remote"})
@@ -794,16 +907,19 @@ class H(BaseHTTPRequestHandler):
         elif u.path == "/api/llm/progress":
             self.send_json(llm.PROG)
         elif u.path == "/api/jobs":
-            with LOCK:
-                jobs = sorted(JOBS.values(), key=lambda j: j["created"], reverse=True)
-            waiting = [j for j in reversed(jobs) if j["status"] == "queued" and not j.get("started")]
-            for n, j in enumerate(waiting, 1):
-                j["progress"] = {"pct": 0, "stage": "Antre ke-%d" % n}
-            now = time.time()
-            for j in jobs:
-                if j.get("started") and j["status"] in ("queued", "running"):
-                    j["elapsed"] = int(now - j["started"])
-            self.send_json(jobs)
+            self.send_json(jobs_view())
+        elif u.path == "/api/thumb":
+            path = video_thumb(parse_qs(u.query).get("f", [""])[0])
+            if not path:
+                return self.send_json({"error": "tidak tersedia"}, 404)
+            with open(path, "rb") as f:
+                b = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Cache-Control", "private, max-age=604800")
+            self.send_header("Content-Length", str(len(b)))
+            self.end_headers()
+            self.wfile.write(b)
         elif u.path.startswith("/outputs/"):
             self.serve_file(os.path.basename(u.path))
         else:
@@ -827,6 +943,7 @@ class H(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", MIME.get(os.path.splitext(name)[1].lower(), "application/octet-stream"))
         self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Cache-Control", "private, max-age=86400")  # nama file hasil selalu unik (waktu + id)
         self.send_header("Content-Length", str(end - start + 1))
         if code == 206:
             self.send_header("Content-Range", "bytes %d-%d/%d" % (start, end, size))
@@ -895,6 +1012,9 @@ class H(BaseHTTPRequestHandler):
                 if restart:  # ganti alamat dengar: keluar, supervisor menyalakan app.py lagi dalam ~5 dtk
                     threading.Timer(1.0, os._exit, [3]).start()
                 return self.send_json({"ok": True, "restart": restart})
+            if self.path == "/api/jobs/query":  # polling UI: hanya job yang ditunggu proyek ini + yang sedang aktif
+                ids = set(map(str, d.get("ids") or []))
+                return self.send_json(jobs_view(lambda j: j["id"] in ids or j["status"] in ("queued", "running")))
             if self.path == "/api/render":
                 self.send_json(start_render(d))
             elif self.path == "/api/update/check":
@@ -974,9 +1094,9 @@ class H(BaseHTTPRequestHandler):
                 self.send_json({"file": name})
             elif self.path == "/api/delete":
                 name = os.path.basename(d.get("file", ""))
-                for fn in (name, name + ".json"):
+                for fp in (os.path.join(OUT, name), os.path.join(OUT, name + ".json"), os.path.join(VTHUMBS, name + ".jpg")):
                     try:
-                        os.remove(os.path.join(OUT, fn))
+                        os.remove(fp)
                     except OSError:
                         pass
                 with LOCK:

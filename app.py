@@ -542,7 +542,7 @@ def llm_run(d):
         except Exception:
             pass
     task = {"ideas": llm.ideas, "storyline": llm.storyline, "script": llm.script,
-            "breakdown": llm.breakdown}.get(d.get("task"))
+            "breakdown": llm.breakdown, "dialog": llm.dialog}.get(d.get("task"))
     if not task:
         raise ValueError("Tugas LLM tidak dikenal.")
     BUSY["llm"] += 1
@@ -741,7 +741,8 @@ class H(BaseHTTPRequestHandler):
         elif u.path == "/api/config":
             names = sorted(f for f in os.listdir(WF) if f.endswith(".json")) if os.path.isdir(WF) else []
             wfs = [{"file": f, "label": wf_meta(f).get("label") or f, "note": wf_meta(f).get("note", ""),
-                    "kind": wf_meta(f).get("kind", "video"), "max_duration": wf_meta(f).get("max_duration", 15)}
+                    "kind": wf_meta(f).get("kind", "video"), "max_duration": wf_meta(f).get("max_duration", 15),
+                    "audio": bool(wf_meta(f).get("audio"))}
                    for f in names]
             spec = node_spec(comfy_url())
             cb = spec["combos"] if spec else {}

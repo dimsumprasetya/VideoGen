@@ -98,7 +98,9 @@ nav a{padding:5px 6px;font-size:13px}nav .n{width:16px;height:16px;line-height:1
 <label style="margin-top:0">Durasi total video (detik)</label><select id="s-total"><option>15</option><option>30</option><option>45</option><option>60</option><option>90</option></select>
 <label>Maks. durasi per scene (detik)</label><input id="s-max" type="number" min="3" max="15" value="8">
 <div class="hint">Seedance 3-12 dtk, MiniMax H3 sampai ~15 dtk.</div>
+<label>Suara / ucapan</label><select id="s-voice"><option value="mix">Dialog + narasi (VO)</option><option value="dialog">Dialog karakter saja</option><option value="vo">Narasi (VO) saja</option><option value="none">Tanpa ucapan (musik saja)</option></select>
 <button id="s-go">Tulis ulang script dari storyline</button>
+<button class="sec" id="s-dlg">Tulis dialog / VO saja (scene tetap)</button>
 <div id="s-sum" style="margin-top:12px;font-weight:600"></div>
 <div class="box llmbox"></div>
 </div><div class="body">
@@ -132,6 +134,7 @@ nav a{padding:5px 6px;font-size:13px}nav .n{width:16px;height:16px;line-height:1
 <label style="margin-top:0">Mesin video</label><select id="v-engine"></select><div class="hint" id="v-note"></div>
 <div id="v-sd"><label>Model Seedance</label><select id="v-model"></select>
 <label class="row" style="color:var(--tx);margin-top:10px" id="v-audw"><input type="checkbox" id="v-audio" style="flex:0"> Generate audio</label></div>
+<label class="row" style="color:var(--tx);margin-top:10px" id="v-spkw"><input type="checkbox" id="v-speak" style="flex:0"> Ucapkan dialog/VO di video</label><div class="hint" id="v-spkh"></div>
 <div class="row"><div><label>Aspek</label><select id="v-aspect"></select></div><div><label>Resolusi</label><select id="v-res"></select></div></div>
 <div class="box" id="v-models" style="display:none"></div>
 <button id="v-all">Generate semua scene</button>
@@ -195,7 +198,7 @@ let cfg={models:[],aspects:["9:16"],resolutions:["720p"],workflows:[]},ST={},JM=
 const BLANK=()=>({v:2,dev:{prompt:"",audience:"",genre:"",tone:"",lang:"Bahasa Indonesia",count:4,ideas:[],chosen:-1},story:"",target:30,maxScene:8,scenes:[],
 look:{style:"",styleId:"",camera:"",lighting:"",palette:""},styleThumbs:{},chars:[],locs:[],props:[],bd:false,imgwf:"",
 prod:{engine:"",model:"",aspect:"9:16",resolution:"720p",audio:false},
-edit:{tr:"cut",fade:0.5,ca:true,cv:1,sub:"onscreen",music:"",audios:[],mv:0.3,mwf:"",mp:"",mjob:"",rjob:"",final:""}});
+voice:"mix",edit:{tr:"cut",fade:0.5,ca:true,cv:1,sub:"onscreen",music:"",audios:[],mv:0.3,mwf:"",mp:"",mjob:"",rjob:"",final:""}});
 let P=BLANK(),PN="",saveT=0;
 function migrate(d){const p=Object.assign(BLANK(),d||{});const b=BLANK();
 for(const k of ["dev","look","prod","edit"])p[k]=Object.assign(b[k],p[k]||{});
@@ -358,14 +361,17 @@ tab("scr");if(!P.scenes.length)await makeScript($("s-go"))};
 
 /* ================= 2. SCRIPT */
 function scrSum(){const t=P.scenes.reduce((a,x)=>a+(+x.duration||0),0);$("s-sum").innerHTML=`Total: <span style="color:${t==P.target?"var(--ok)":"var(--warn)"}">${t}</span> / ${P.target} detik · ${P.scenes.length} scene`}
-function scrRender(){$("s-total").value=P.target;$("s-max").value=P.maxScene;
+const WPS=2.3,words=t=>String(t||"").replace(/^\s*[^:\n]{1,24}:\s*/gm,"").split(/\s+/).filter(Boolean).length;
+const dlgHint=x=>{if(P.voice=="none")return "";const w=words(x.dialog),mx=Math.round(WPS*(x.duration||5));
+return !w?`<span class="err">kosong</span>`:`<span style="color:${w>mx?"var(--warn)":"var(--mut)"}">${w} kata / maks ~${mx}${w>mx?" (terlalu panjang)":""}</span>`};
+function scrRender(){$("s-total").value=P.target;$("s-max").value=P.maxScene;$("s-voice").value=P.voice||"mix";
 $("s-list").innerHTML=P.scenes.map((x,i)=>`<div class="sc s2"><div class="c"><b>Scene ${i+1}</b>
 <label class="hint">Durasi (dtk)</label><input type="number" min="1" max="15" value="${x.duration||5}" oninput="P.scenes[${i}].duration=+this.value;save();scrSum()">
 <label class="hint">Lokasi</label><input value="${esc(x.location)}" oninput="P.scenes[${i}].location=this.value;save()">
 <label class="hint">Waktu</label><input value="${esc(x.time)}" oninput="P.scenes[${i}].time=this.value;save()">
 <div class="btns"><button class="sec" onclick="scMove(${i},-1)">↑</button><button class="sec" onclick="scMove(${i},1)">↓</button><button class="sec" onclick="scDel(${i})">✕</button></div></div>
 <div class="c"><label class="hint">Aksi</label><textarea oninput="P.scenes[${i}].action=this.value;save()">${esc(x.action)}</textarea>
-<label class="hint">Dialog / VO</label><textarea oninput="P.scenes[${i}].dialog=this.value;save()" style="height:46px">${esc(x.dialog)}</textarea>
+<label class="hint">Dialog / VO <span id="dh${i}">${dlgHint(x)}</span></label><textarea placeholder="Nama: ucapan&#10;VO: narasi" oninput="P.scenes[${i}].dialog=this.value;save();$('dh${i}').innerHTML=dlgHint(P.scenes[${i}])" style="height:58px">${esc(x.dialog)}</textarea>
 <label class="hint">Teks di layar (jadi subtitle di tahap 5)</label><input value="${esc(x.onscreen_text)}" oninput="P.scenes[${i}].onscreen_text=this.value;save()"></div>
 <div class="c"><label class="hint">Prompt visual (English, untuk model video)</label><textarea oninput="P.scenes[${i}].visual=this.value;save()" style="height:170px">${esc(x.visual)}</textarea></div></div>`).join("")
 ||`<div class="hint">Belum ada scene. Klik "Tulis ulang script dari storyline" atau "+ Scene".</div>`;scrSum();$("n2").textContent=P.scenes.length?"":"Tulis script dulu."}
@@ -374,9 +380,14 @@ function scDel(i){if(!confirm("Hapus scene "+(i+1)+"?"))return;P.scenes.splice(i
 $("s-total").onchange=()=>{P.target=+$("s-total").value;save();scrSum()};$("s-max").oninput=()=>{P.maxScene=+$("s-max").value||8;save()};
 $("s-add").onclick=()=>{P.scenes.push(migrate({scenes:[{}]}).scenes[0]);save();scrRender()};
 async function makeScript(btn){if(!P.story.trim()){alert("Storyline masih kosong.");return false}
-const r=await llmRun(btn,"s-msg",{task:"script",storyline:P.story,duration:P.target,max_scene:P.maxScene,lang:P.dev.lang});if(!r)return false;
+const r=await llmRun(btn,"s-msg",{task:"script",storyline:P.story,duration:P.target,max_scene:P.maxScene,lang:P.dev.lang,voice:P.voice});if(!r)return false;
 P.scenes=migrate({scenes:(r.scenes||[]).map(x=>Object.assign({dialog:"",onscreen_text:""},x))}).scenes;P.bd=false;save();scrRender();return true}
 $("s-go").onclick=()=>{if(P.scenes.length&&!confirm("Ganti semua scene yang sudah ada?"))return;makeScript($("s-go"))};
+$("s-voice").onchange=()=>{P.voice=$("s-voice").value;save();scrRender()};
+$("s-dlg").onclick=async()=>{if(!P.scenes.length)return alert("Belum ada scene.");if(P.voice=="none")return alert("Pilihan suara 'Tanpa ucapan': tidak ada dialog yang perlu ditulis.");
+if(P.scenes.some(x=>(x.dialog||"").trim())&&!confirm("Ganti dialog/VO yang sudah ada di semua scene?"))return;
+const r=await llmRun($("s-dlg"),"s-msg",{task:"dialog",storyline:P.story,scenes:P.scenes,lang:P.dev.lang,voice:P.voice});if(!r)return;
+(r.dialogs||[]).forEach((t,i)=>{if(P.scenes[i]&&t)P.scenes[i].dialog=t});save();scrRender()};
 $("next2").onclick=async()=>{if(!P.scenes.length)return alert("Belum ada scene.");tab("bd");if(!P.bd)await makeBreakdown($("b-go"))};
 
 /* ================= 3. BREAKDOWN */
@@ -455,16 +466,22 @@ $("next3").onclick=()=>tab("prod");
 function compose(sc){const L=P.look,cs=scChars(sc),loc=scLoc(sc),pr=scProps(sc);return [L.style&&`Style: ${L.style}.`,`${sc.shot||"Medium"} shot, camera ${(sc.cam||"static").toLowerCase()}.`,
 (sc.visual||sc.action||"").trim(),cs.map(c=>`${c.name}: ${c.look}${c.wardrobe?", wearing "+c.wardrobe:""}${c.makeup&&!/^none$/i.test(c.makeup)?", "+c.makeup:""}.`).join(" "),
 loc&&`Setting: ${loc.name}, ${loc.desc}${sc.time?", "+sc.time:""}.`,pr.length&&`Props: ${pr.map(p=>p.name+(p.desc?" ("+p.desc+")":"")).join(", ")}.`,
-L.lighting&&`Lighting: ${L.lighting}.`,L.palette&&`Color palette: ${L.palette}.`,L.camera&&`Camera: ${L.camera}.`,"No on-screen text, no subtitles, no watermark."].filter(Boolean).join(" ")}
+L.lighting&&`Lighting: ${L.lighting}.`,L.palette&&`Color palette: ${L.palette}.`,L.camera&&`Camera: ${L.camera}.`,speech(sc),"No on-screen text, no subtitles, no watermark."].filter(Boolean).join(" ")}
+/* dialog/VO ke prompt video bila mesinnya bisa bersuara (MiniMax H3; Seedance 1.5 + Generate audio) */
+const engAudio=()=>P.prod.engine?!!engMeta()?.audio:!!(P.prod.audio&&(cfg.models.find(x=>x.id==(P.prod.model||$("v-model").value))||{}).audio);
+function speech(sc){if(P.prod.speak===false||!engAudio()||!(sc.dialog||"").trim())return "";const lang={"Bahasa Indonesia":"Indonesian","日本語":"Japanese"}[P.dev.lang]||P.dev.lang||"Indonesian";
+return sc.dialog.split("\n").map(l=>l.trim()).filter(Boolean).map(l=>{const m=l.match(/^([^:]{1,24}):\s*(.+)$/);
+if(!m)return `Spoken in ${lang}: "${l}".`;return /^(vo|narator|narrator|narasi)$/i.test(m[1].trim())?`Narrator voice-over in ${lang}: "${m[2]}".`:`${m[1].trim()} says in ${lang}: "${m[2]}".`}).join(" ")}
 const promptOf=sc=>sc.prompt||compose(sc);
 function prodLoad(){const pd=P.prod;for(const [id,v] of [["v-engine",pd.engine],["v-model",pd.model],["v-aspect",pd.aspect],["v-res",pd.resolution],["b-imgwf",P.imgwf],["e-mwf",P.edit.mwf]])
 if([...$(id).options].some(o=>o.value==v))$(id).value=v;if(!P.imgwf)P.imgwf=$("b-imgwf").value}
 const engMeta=()=>cfg.workflows.find(w=>w.file==P.prod.engine);
 function prodSide(){const sd=!P.prod.engine,m=cfg.models.find(x=>x.id==$("v-model").value)||{};$("v-sd").style.display=sd?"":"none";$("v-audw").style.display=sd&&m.audio?"flex":"none";
+$("v-speak").checked=P.prod.speak!==false;$("v-spkh").textContent=engAudio()?"Model ini bisa bersuara: dialog & narasi dari script dimasukkan ke prompt.":"Mesin ini tanpa suara: dialog hanya jadi subtitle di tahap 5"+(sd&&m.audio?" (centang Generate audio untuk bersuara).":".");
 $("v-audio").checked=!!P.prod.audio;$("v-note").textContent=sd?"Jalan di cloud, butuh API key + kredit Comfy (Pengaturan ⚙).":(engMeta()?.note||"");prodModels()}
 async function prodModels(){return tabModels("prod")}
-$("v-engine").onchange=()=>{P.prod.engine=$("v-engine").value;save();prodSide()};$("v-model").onchange=()=>{P.prod.model=$("v-model").value;save();prodSide()};
-$("v-audio").onchange=()=>{P.prod.audio=$("v-audio").checked;save()};$("v-aspect").onchange=()=>{P.prod.aspect=$("v-aspect").value;save()};$("v-res").onchange=()=>{P.prod.resolution=$("v-res").value;save()};
+$("v-engine").onchange=()=>{P.prod.engine=$("v-engine").value;save();prodSide();prodRender()};$("v-model").onchange=()=>{P.prod.model=$("v-model").value;save();prodSide()};
+$("v-audio").onchange=()=>{P.prod.audio=$("v-audio").checked;save();prodSide();prodRender()};$("v-speak").onchange=()=>{P.prod.speak=$("v-speak").checked;save();prodRender()};$("v-aspect").onchange=()=>{P.prod.aspect=$("v-aspect").value;save()};$("v-res").onchange=()=>{P.prod.resolution=$("v-res").value;save()};
 function prodRender(){
 $("v-list").innerHTML=P.scenes.map((s,i)=>`<div class="sc s4"><div class="c"><b>Scene ${i+1} · ${s.duration} dtk</b>
 <textarea style="height:150px" oninput="P.scenes[${i}].prompt=this.value;save()">${esc(promptOf(s))}</textarea>
@@ -488,7 +505,7 @@ function editLoad(){const E=P.edit;$("e-tr").value=E.tr;$("e-fade").value=E.fade
 $("e-mp").value=E.mp||["instrumental background music",P.dev.tone,P.dev.genre].filter(Boolean).join(", ")}
 [["e-tr","tr"],["e-fade","fade",1],["e-cv","cv",1],["e-sub","sub"],["e-mv","mv",1],["e-mp","mp"],["e-music","music"],["e-mwf","mwf"]].forEach(([id,k,num])=>$(id).oninput=$(id).onchange=()=>{P.edit[k]=num?+$(id).value:$(id).value;save();if(k=="sub"||k=="tr"||k=="fade")editRender()});
 $("e-ca").onchange=()=>{P.edit.ca=$("e-ca").checked;save()};
-const subSrc=s=>P.edit.sub=="dialog"?s.dialog:P.edit.sub=="onscreen"?s.onscreen_text:"";
+const subSrc=s=>P.edit.sub=="dialog"?String(s.dialog||"").split("\n").map(l=>l.replace(/^\s*[^:]{1,24}:\s*/,"").trim()).filter(Boolean).join(" "):P.edit.sub=="onscreen"?s.onscreen_text:"";
 function editClips(){return P.scenes.filter(s=>s.take&&s.use!==false)}
 function editRender(){const E=P.edit,aud=[...new Set([...E.audios,E.music].filter(Boolean))];
 fillSel($("e-music"),[["","Tanpa musik"],...aud.map(f=>[f,f.replace(/^upload_\d+-\d+_/,"")])],E.music);

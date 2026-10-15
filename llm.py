@@ -148,7 +148,7 @@ S_STORY = {"type": "object", "required": ["title", "premise", "characters", "beg
                           "beginning": {"type": "string"}, "middle": {"type": "string"}, "end": {"type": "string"}}}
 
 S_SCRIPT = {"type": "object", "required": ["scenes"], "properties": {"scenes": {"type": "array", "items": {
-    "type": "object", "required": ["duration", "location", "time", "action", "visual"],
+    "type": "object", "required": ["duration", "location", "time", "action", "dialog", "onscreen_text", "visual"],
     "properties": {"duration": {"type": "integer"}, "location": {"type": "string"}, "time": {"type": "string"},
                    "action": {"type": "string"}, "dialog": {"type": "string"}, "onscreen_text": {"type": "string"},
                    "visual": {"type": "string"}}}}}}
@@ -181,18 +181,41 @@ def storyline(base, model, d):
     return chat_json(base, model, SYSTEM, user, S_STORY, est=380, task="storyline")
 
 
+# Jenis suara: menentukan isi kolom dialog tiap scene. Kolom dialog WAJIB di schema; dengan structured output
+# Ollama, kolom opsional hampir selalu dilewati model (dulu penyebab dialog/VO kosong).
+VOICE = {
+    "dialog": "Every scene MUST have spoken dialogue by the characters. Format each line as 'Name: line'.",
+    "vo": "Every scene MUST have narrator voice-over. Format each line as 'VO: line'.",
+    "mix": "Every scene MUST have at least one spoken line: character dialogue ('Name: line') and/or narrator "
+           "voice-over ('VO: line'). Use VO to explain or teach, dialogue for character moments.",
+    "none": "There is NO speech in this video (music and sound only): dialog must be an empty string.",
+}
+WPS = 2.3  # kata per detik ucapan santai; batas panjang dialog per scene
+
+
+def _voice_rules(mode, lang):
+    mode = mode if mode in VOICE else "mix"
+    if mode == "none":
+        return VOICE[mode]
+    return (VOICE[mode] + " Separate several lines with a newline. Keep it speakable within the scene: at most "
+            "about %.1f words per second of scene duration. Write the spoken words in %s; use the exact character "
+            "names from the storyline." % (WPS, lang))
+
+
 def script(base, model, d):
     total, max_scene = int(d.get("duration") or 30), int(d.get("max_scene") or 8)
+    lang = d.get("lang") or "Bahasa Indonesia"
     n = max(1, round(total / max(3, min(max_scene, 6))))
     user = ("Turn this storyline into a shooting script for a %d-second vertical short video.\n\n%s\n\n"
             "Write about %d scenes; each scene 3-%d seconds; scene durations must add up to %d seconds.\n"
             "For each scene: duration (integer seconds), location, time (day/night/...), action (what happens), "
-            "dialog or voice-over (empty if none), onscreen_text (empty if none), and visual: ONE English prompt "
-            "for an AI text-to-video model describing shot size, camera movement, subject, action, setting, lighting "
-            "(no character names alone - describe how they look). "
+            "dialog (the spoken words, see rules), onscreen_text (short text shown on screen, or empty), and visual: "
+            "ONE English prompt for an AI text-to-video model describing shot size, camera movement, subject, action, "
+            "setting, lighting (no character names alone - describe how they look).\n"
+            "DIALOG RULES: %s\n"
             "Write location, time, action, dialog and onscreen_text in %s."
-            % (total, d.get("storyline", ""), n, max_scene, total, d.get("lang") or "Bahasa Indonesia"))
-    res = chat_json(base, model, SYSTEM, user, S_SCRIPT, est=110 * n + 30, task="script")
+            % (total, d.get("storyline", ""), n, max_scene, total, _voice_rules(d.get("voice"), lang), lang))
+    res = chat_json(base, model, SYSTEM, user, S_SCRIPT, est=135 * n + 30, task="script")
     res["scenes"] = fit_durations(res.get("scenes") or [], total, max_scene)
     got = sum(x["duration"] for x in res["scenes"])
     if got != total:
@@ -258,3 +281,26 @@ def breakdown(base, model, d):
             "exactly as in the script."
             % (d.get("storyline", ""), "\n".join(lines), d.get("style", ""), len(scenes)))
     return chat_json(base, model, SYSTEM, user, S_BREAKDOWN, est=300 + 75 * len(scenes), task="breakdown")
+
+
+S_DIALOG = {"type": "object", "required": ["lines"], "properties": {"lines": {"type": "array", "items": {
+    "type": "object", "required": ["scene", "dialog"],
+    "properties": {"scene": {"type": "integer"}, "dialog": {"type": "string"}}}}}}
+
+
+def dialog(base, model, d):
+    """Tulis (ulang) dialog / VO untuk scene yang sudah ada tanpa mengubah scene lainnya."""
+    scenes = d.get("scenes") or []
+    lang = d.get("lang") or "Bahasa Indonesia"
+    lines = ["Scene %d (%ss): %s" % (i + 1, s.get("duration", ""), s.get("action", "")) for i, s in enumerate(scenes)]
+    user = ("Write the spoken lines for this short vertical video, one entry for EACH scene 1-%d.\n\n"
+            "STORYLINE:\n%s\n\nSCENES:\n%s\n\nDIALOG RULES: %s"
+            % (len(scenes), d.get("storyline", ""), "\n".join(lines), _voice_rules(d.get("voice"), lang)))
+    res = chat_json(base, model, SYSTEM, user, S_DIALOG, est=40 + 45 * len(scenes), task="dialog")
+    out = [""] * len(scenes)
+    for x in res.get("lines") or []:
+        i = int(x.get("scene") or 0) - 1
+        if 0 <= i < len(out):
+            out[i] = str(x.get("dialog") or "").strip()
+    return {"dialogs": out}
+

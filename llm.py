@@ -2,6 +2,8 @@
 Ollama: https://ollama.com  (API http://127.0.0.1:11434)."""
 import json, re, threading, urllib.error, urllib.request
 
+import film
+
 RECOMMENDED = "qwen3:8b"   # ~5 GB, muat di VRAM 8 GB, bagus untuk bahasa Indonesia
 ALTERNATIVES = ["qwen2.5:7b", "gemma3:4b", "llama3.2:3b"]  # cadangan bila qwen3 gagal (mis. Ollama versi lama)
 _DIRECT = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # Ollama lokal: jangan lewat proxy sistem
@@ -89,11 +91,17 @@ def _parse(text):
         raise RuntimeError("Jawaban LLM bukan JSON: " + text[:200])
 
 
+def _ctx(prompt, est):
+    """Panjang konteks: 8192 cukup untuk kebanyakan tugas (hemat VRAM 8 GB); script/continuity panjang butuh lebih."""
+    need = len(prompt) // 3 + int(est * 1.3) + 300  # ~3 karakter per token
+    return 8192 if need <= 8192 else 12288 if need <= 12288 else 16384
+
+
 def chat_json(base, model, system, user, schema, keep_alive="2m", timeout=900, est=600, task=""):
     """Minta jawaban JSON sesuai schema (structured output Ollama). Streaming supaya PROG berisi persen:
     token yang sudah ditulis / perkiraan panjang jawaban (est), maks 95% sampai selesai."""
     body = {"model": model, "stream": True, "format": schema, "keep_alive": keep_alive, "think": False,
-            "options": {"temperature": 0.8, "num_ctx": 8192},
+            "options": {"temperature": 0.8, "num_ctx": _ctx(system + user, est)},
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
     PROG.update(active=True, task=task, stage="Memuat model AI", tokens=0, est=max(50, int(est)), pct=0)
     try:
@@ -140,18 +148,43 @@ S_IDEAS = {"type": "object", "required": ["ideas"], "properties": {"ideas": {"ty
     "type": "object", "required": ["title", "logline", "hook"],
     "properties": {"title": {"type": "string"}, "logline": {"type": "string"}, "hook": {"type": "string"}}}}}}
 
-S_STORY = {"type": "object", "required": ["title", "premise", "characters", "beginning", "middle", "end"],
-           "properties": {"title": {"type": "string"}, "premise": {"type": "string"},
-                          "characters": {"type": "array", "items": {"type": "object", "required": ["name", "description"],
-                                         "properties": {"name": {"type": "string"}, "description": {"type": "string"}}}},
-                          "setting": {"type": "string"},
-                          "beginning": {"type": "string"}, "middle": {"type": "string"}, "end": {"type": "string"}}}
+# Struktur 3 babak klasik Hollywood + bahasa film (film.py). Semua kolom WAJIB: structured output Ollama
+# melewati kolom opsional.
+STORY_BEATS, TRANSITIONS, CRAFT = film.STORY_BEATS, film.TRANSITIONS, film.CRAFT
+_STR = {"type": "string"}
+S_STORY = {"type": "object", "required": ["title", "premise", "dramatic_question", "characters", "obstacle", "setting",
+                                          "motif", "act1", "act2", "act3"],
+           "properties": {"title": _STR, "premise": _STR, "dramatic_question": _STR,
+                          "characters": {"type": "array", "items": {"type": "object",
+                                         "required": ["name", "role", "description", "want"],
+                                         "properties": {"name": _STR, "description": _STR, "want": _STR,
+                                                        "role": {"type": "string", "enum": ["protagonist", "antagonist", "helper"]}}}},
+                          "obstacle": _STR, "setting": _STR, "motif": _STR,
+                          "act1": {"type": "object", "required": ["opening_image", "setup", "inciting_incident", "point_of_attack"],
+                                   "properties": {k: _STR for k in ("opening_image", "setup", "inciting_incident", "point_of_attack")}},
+                          "act2": {"type": "object", "required": ["rising_action", "midpoint", "crisis"],
+                                   "properties": {k: _STR for k in ("rising_action", "midpoint", "crisis")}},
+                          "act3": {"type": "object", "required": ["climax", "resolution", "closing_image"],
+                                   "properties": {k: _STR for k in ("climax", "resolution", "closing_image")}}}}
 
+# Satu scene = satu shot. Urutan kolom = urutan berpikir: struktur -> hubungan -> isi -> decoupage -> transisi.
+_SCENE_PROPS = {"duration": {"type": "integer"}, "act": {"type": "integer", "enum": [1, 2, 3]},
+                "beat": {"type": "string", "enum": STORY_BEATS}, "purpose": _STR, "link_in": _STR,
+                "location": _STR, "time": _STR, "action": _STR, "dialog": _STR, "onscreen_text": _STR,
+                "shot": {"type": "string", "enum": film.SHOTS}, "angle": {"type": "string", "enum": film.ANGLES},
+                "camera": {"type": "string", "enum": film.CAMS}, "direction": {"type": "string", "enum": film.DIRS},
+                "first_frame": _STR, "visual": _STR, "last_frame": _STR, "sound": _STR,
+                "transition_out": {"type": "string", "enum": TRANSITIONS}}
 S_SCRIPT = {"type": "object", "required": ["scenes"], "properties": {"scenes": {"type": "array", "items": {
-    "type": "object", "required": ["duration", "location", "time", "action", "dialog", "onscreen_text", "visual"],
-    "properties": {"duration": {"type": "integer"}, "location": {"type": "string"}, "time": {"type": "string"},
-                   "action": {"type": "string"}, "dialog": {"type": "string"}, "onscreen_text": {"type": "string"},
-                   "visual": {"type": "string"}}}}}}
+    "type": "object", "required": list(_SCENE_PROPS), "properties": _SCENE_PROPS}}}}
+FIELDS = ("act (1/2/3), beat, purpose (what changes: cause -> effect), link_in (how it follows from the previous "
+          "scene; for scene 1 the hook), location, time (time of day), action, dialog, onscreen_text (short or empty), "
+          "shot, angle, camera (movement), direction (screen direction of the main movement or gaze), first_frame "
+          "(must connect to the previous last_frame unless a bridge transition changes place/time), visual (ONE "
+          "prompt for an AI text-to-video model: shot size, angle, camera move, subject with its look, action from "
+          "first_frame to last_frame, setting with motivated lighting; never only a name), last_frame (sets up the "
+          "next scene), sound (diegetic effects/ambience), transition_out (relationship to the next shot; last scene: "
+          "fade to black or cut)")
 
 SYSTEM = ("You are a story developer and screenwriter for vertical short-form video (YouTube Shorts, 9:16). "
           "Stories must work visually in seconds, have a strong hook in the first 3 seconds, few characters, "
@@ -172,13 +205,24 @@ def ideas(base, model, d):
 
 
 def storyline(base, model, d):
-    user = ("Develop this idea into a storyline for a %s-second vertical short video.\n"
+    user = ("Develop this idea into a storyline for a %s-second vertical short video, using the classic Hollywood "
+            "three-act structure.\n"
             "Title: %s\nLogline: %s\nHook: %s\nOriginal prompt: %s\n%s\n"
-            "Give: premise, 1-3 main characters (name + visual description: look, clothes, personality), "
-            "setting, and beginning / middle / end (each 1-3 sentences). Write in %s."
+            "Give: premise, dramatic_question (the yes/no question the climax answers), 1-3 characters (name, role: "
+            "exactly one protagonist, optional antagonist/helper; description = visual look, clothes incl. objects "
+            "they carry, personality; want = goal / need / desire), obstacle (what blocks the protagonist: an "
+            "antagonist or a passive force), setting (place, time period, social world - concrete), motif (one "
+            "recurring visual or sound that returns and pays off), and the beats:\n"
+            "act1: opening_image (the hook we SEE in the first 3 seconds, already showing who, where and the problem), "
+            "setup, inciting_incident, point_of_attack (the moment the goal changes and act 2 starts);\n"
+            "act2: rising_action (escalating attempts and obstacles), midpoint (twist that raises the stakes), crisis "
+            "(lowest point);\nact3: climax (decisive action that answers the dramatic question), resolution, "
+            "closing_image (mirrors or echoes the opening image).\n"
+            "Each beat 1-2 sentences, concrete and visual, CAUSED by the previous one (because / therefore / but, "
+            "never 'and then').\n\n%s\n\nWrite in %s."
             % (d.get("duration") or 30, d.get("title", ""), d.get("logline", ""), d.get("hook", ""),
-               d.get("prompt", ""), _brief(d), d.get("lang") or "Bahasa Indonesia"))
-    return chat_json(base, model, SYSTEM, user, S_STORY, est=380, task="storyline")
+               d.get("prompt", ""), _brief(d), film.story_text_rules(), d.get("lang") or "Bahasa Indonesia"))
+    return chat_json(base, model, SYSTEM, user, S_STORY, est=560, task="storyline")
 
 
 # Jenis suara: menentukan isi kolom dialog tiap scene. Kolom dialog WAJIB di schema; dengan structured output
@@ -187,7 +231,8 @@ VOICE = {
     "dialog": "Every scene MUST have spoken dialogue by the characters. Format each line as 'Name: line'.",
     "vo": "Every scene MUST have narrator voice-over. Format each line as 'VO: line'.",
     "mix": "Every scene MUST have at least one spoken line: character dialogue ('Name: line') and/or narrator "
-           "voice-over ('VO: line'). Use VO to explain or teach, dialogue for character moments.",
+           "voice-over ('VO: line'). Use VO to explain or teach, dialogue for character moments. Also allowed: "
+           "'Name (OS): line' for a voice heard off screen, 'Name (thought): line' for interior monologue.",
     "none": "There is NO speech in this video (music and sound only): dialog must be an empty string.",
 }
 WPS = 2.3  # kata per detik ucapan santai; batas panjang dialog per scene
@@ -206,21 +251,53 @@ def script(base, model, d):
     total, max_scene = int(d.get("duration") or 30), int(d.get("max_scene") or 8)
     lang = d.get("lang") or "Bahasa Indonesia"
     n = max(1, round(total / max(3, min(max_scene, 6))))
-    user = ("Turn this storyline into a shooting script for a %d-second vertical short video.\n\n%s\n\n"
-            "Write about %d scenes; each scene 3-%d seconds; scene durations must add up to %d seconds.\n"
-            "For each scene: duration (integer seconds), location, time (day/night/...), action (what happens), "
-            "dialog (the spoken words, see rules), onscreen_text (short text shown on screen, or empty), and visual: "
-            "ONE English prompt for an AI text-to-video model describing shot size, camera movement, subject, action, "
-            "setting, lighting (no character names alone - describe how they look).\n"
-            "DIALOG RULES: %s\n"
-            "Write location, time, action, dialog and onscreen_text in %s."
-            % (total, d.get("storyline", ""), n, max_scene, total, _voice_rules(d.get("voice"), lang), lang))
-    res = chat_json(base, model, SYSTEM, user, S_SCRIPT, est=135 * n + 30, task="script")
-    res["scenes"] = fit_durations(res.get("scenes") or [], total, max_scene)
+    n = max(n, 4)  # minimal satu scene per babak + opening/closing
+    user = ("Turn this storyline into a shooting script (decoupage) for a %d-second vertical short video.\n\n%s\n\n"
+            "Write about %d scenes (each scene = one shot); each 3-%d seconds; durations must add up to %d seconds.\n"
+            "For each scene: duration (integer seconds), %s.\n\n%s\n\n"
+            "DIALOG RULES: %s Dialog/VO may carry over a cut as a sound bridge.\n"
+            "Write purpose, link_in, location, time, action, dialog and onscreen_text in %s; first_frame, visual, "
+            "last_frame and sound in English."
+            % (total, d.get("storyline", ""), n, max_scene, total, FIELDS, CRAFT, _voice_rules(d.get("voice"), lang), lang))
+    res = chat_json(base, model, SYSTEM, user, S_SCRIPT, est=290 * n + 30, task="script")
+    res["scenes"] = fix_structure(fit_durations(res.get("scenes") or [], total, max_scene))
     got = sum(x["duration"] for x in res["scenes"])
     if got != total:
         res["_warn"] = "Total %d dtk dari target %d dtk: tambah/hapus scene atau ubah durasi." % (got, total)
     return res
+
+
+def fix_structure(scenes):
+    """Rapikan babak/beat/transisi: babak tidak boleh mundur; yang kosong diisi menurut posisi (25/50/25)."""
+    n, prev = len(scenes), 1
+    for i, s in enumerate(scenes):
+        pos = (i + 0.5) / max(1, n)
+        guess = 1 if pos < 0.25 else 2 if pos < 0.75 else 3
+        try:
+            act = int(s.get("act") or guess)
+        except (TypeError, ValueError):
+            act = guess
+        act = min(3, max(prev, act))
+        if n >= 3 and i in (0, n - 1):
+            act = 1 if i == 0 else 3
+        s["act"] = prev = act
+    if n >= 3 and {s["act"] for s in scenes} != {1, 2, 3}:  # model tidak memakai ketiga babak: bagi menurut posisi
+        for i, s in enumerate(scenes):
+            pos = (i + 0.5) / n
+            s["act"] = 1 if pos < 0.25 else 2 if pos < 0.75 else 3
+    for i, s in enumerate(scenes):
+        act = s["act"]
+        if s.get("beat") not in STORY_BEATS:
+            s["beat"] = ("opening_image" if i == 0 else "resolution" if i == n - 1 else
+                         {1: "setup", 2: "rising_action", 3: "climax"}[act])
+        s["transition_out"] = film.norm(s.get("transition_out"), TRANSITIONS, "cut")
+        s["shot"] = film.norm(s.get("shot"), film.SHOTS, "Medium shot")
+        s["angle"] = film.norm(s.get("angle"), film.ANGLES, "Eye level")
+        s["camera"] = film.norm(s.get("camera"), film.CAMS, "Static")
+        s["direction"] = film.norm(s.get("direction"), film.DIRS, "static")
+        for k in ("purpose", "link_in", "first_frame", "last_frame", "sound"):
+            s[k] = str(s.get(k) or "").strip()
+    return scenes
 
 
 def fit_durations(scenes, total, max_scene, min_scene=2):
@@ -256,31 +333,77 @@ S_BREAKDOWN = {"type": "object", "required": ["look", "characters", "locations",
                   "properties": {"name": {"type": "string"}, "description": {"type": "string"}}}},
     "props": {"type": "array", "items": {"type": "object", "required": ["name", "description"],
               "properties": {"name": {"type": "string"}, "description": {"type": "string"}}}},
-    "scenes": {"type": "array", "items": {"type": "object", "required": ["scene", "characters", "location", "props", "shot", "camera"],
+    "scenes": {"type": "array", "items": {"type": "object", "required": ["scene", "characters", "location", "props", "continuity"],
                "properties": {"scene": {"type": "integer"}, "characters": {"type": "array", "items": {"type": "string"}},
                               "location": {"type": "string"}, "props": {"type": "array", "items": {"type": "string"}},
-                              "shot": {"type": "string"}, "camera": {"type": "string"}}}}}}
+                              "continuity": {"type": "string"}}}}}}
 
 
 def breakdown(base, model, d):
     """Breakdown script: karakter (fisik, wardrobe, make-up), set/lokasi, properti, mood & style, dan isi tiap scene."""
     scenes = d.get("scenes") or []
-    lines = ["Scene %d (%ss) | location: %s | time: %s | action: %s | dialog: %s" % (
-        i + 1, s.get("duration", ""), s.get("location", ""), s.get("time", ""), s.get("action", ""), s.get("dialog", ""))
-        for i, s in enumerate(scenes)]
+    lines = ["Scene %d (%ss, act %s %s) | location: %s | time: %s | action: %s | dialog: %s | %s %s | first frame: "
+             "%s | last frame: %s | transition out: %s" % (
+                 i + 1, s.get("duration", ""), s.get("act") or "?", s.get("beat") or "", s.get("location", ""),
+                 s.get("time", ""), s.get("action", ""), s.get("dialog", ""), s.get("shot", ""), s.get("angle", ""),
+                 s.get("first_frame", ""), s.get("last_frame", ""), s.get("transition_out", ""))
+             for i, s in enumerate(scenes)]
     user = ("Make a production breakdown of this short-video script so every AI-generated shot stays visually consistent.\n\n"
             "STORYLINE:\n%s\n\nSCRIPT:\n%s\n\nVisual style wanted (may be empty): %s\n\n"
-            "Return:\n- look: overall visual style (e.g. 3D animation / live action / anime), camera language, lighting, "
-            "color palette.\n- characters: every character; look = fixed physical description (age, body, face, hair, "
-            "skin/fur), wardrobe = clothes, makeup = make-up / hair styling / special effects (or 'none').\n"
-            "- locations: every set/location with a reusable visual description.\n- props: important objects.\n"
-            "- scenes: for EACH scene number 1-%d: character names present, location name, prop names, shot size "
-            "(Wide, Medium, Close-up, Extreme close-up, Over-the-shoulder, POV, Top-down) and camera movement "
-            "(Static, Pan, Tilt, Push-in, Pull-out, Tracking, Handheld, Orbit).\n"
+            "Return (mise en scene):\n- look: overall visual style (e.g. 3D animation / live action / anime), camera "
+            "language, lighting (motivated by visible sources and time of day; high-key for light moods, low-key for "
+            "tension), color palette (with a meaning, e.g. warm = safety, cold = danger).\n- characters: every "
+            "character; look = fixed physical description (age, body, face, hair, skin/fur), wardrobe = costume "
+            "INCLUDING objects they carry, consistent through the film (it shows status and personality), makeup = "
+            "natural or character make-up / hair / special effects (or 'none').\n"
+            "- locations: every set/location with a reusable visual description that shows place, time period and "
+            "the world of the characters (set dressing and props that belong there, light sources such as windows "
+            "or lamps).\n- props: important objects (especially ones that set up a payoff or a recurring motif).\n"
+            "- scenes: for EACH scene number 1-%d: character names present, location name, prop names, and continuity "
+            "= what must stay the same into the next shot (props in hand, wardrobe state, position left/right, "
+            "screen direction, light direction, time of day), in English.\n"
             "Write ALL descriptions in English (they become AI video prompts); keep character and location names "
             "exactly as in the script."
             % (d.get("storyline", ""), "\n".join(lines), d.get("style", ""), len(scenes)))
     return chat_json(base, model, SYSTEM, user, S_BREAKDOWN, est=300 + 75 * len(scenes), task="breakdown")
+
+
+_CONT_KEYS = ["act", "beat", "purpose", "link_in", "shot", "angle", "camera", "direction", "first_frame", "visual",
+              "last_frame", "sound", "transition_out"]
+S_CONT = {"type": "object", "required": ["scenes"], "properties": {"scenes": {"type": "array", "items": {
+    "type": "object", "required": ["scene"] + _CONT_KEYS,
+    "properties": dict({"scene": {"type": "integer"}}, **{k: _SCENE_PROPS[k] for k in _CONT_KEYS})}}}}
+
+
+def continuity(base, model, d):
+    """Perbaiki hubungan antar scene (3 babak, sebab-akibat, frame awal/akhir, transisi) tanpa mengubah durasi,
+    lokasi, aksi atau dialog yang sudah ditulis pengguna."""
+    scenes = d.get("scenes") or []
+    lang = d.get("lang") or "Bahasa Indonesia"
+    lines = ["Scene %d (%ss) | act %s | location: %s | time: %s | action: %s | dialog: %s | %s, %s, %s, %s | "
+             "visual: %s | transition out: %s" % (
+                 i + 1, s.get("duration", ""), s.get("act") or "?", s.get("location", ""), s.get("time", ""),
+                 s.get("action", ""), (s.get("dialog") or "").replace("\n", " / "), s.get("shot") or "?",
+                 s.get("angle") or "?", s.get("camera") or "?", s.get("direction") or "?", s.get("visual", ""),
+                 s.get("transition_out") or "?")
+             for i, s in enumerate(scenes)]
+    issues = [str(x) for x in (d.get("issues") or [])][:40]
+    user = ("This short-video script feels disconnected: shots jump and the story, storyboard and video do not "
+            "flow. Rework ONLY the structure, the shot relationships and the decoupage of EACH scene 1-%d (keep the "
+            "order, duration, location, time, action and dialog): %s.\n\n"
+            "STORYLINE:\n%s\n\nSCRIPT:\n%s\n\n%s%s\n\nWrite purpose and link_in in %s; first_frame, visual, "
+            "last_frame and sound in English."
+            % (len(scenes), ", ".join(_CONT_KEYS), d.get("storyline", ""), "\n".join(lines),
+               ("PROBLEMS FOUND BY THE CONTINUITY CHECK (fix all of them):\n- " + "\n- ".join(issues) + "\n\n")
+               if issues else "", CRAFT, lang))
+    res = chat_json(base, model, SYSTEM, user, S_CONT, est=40 + 230 * len(scenes), task="continuity")
+    out = [dict(s) for s in scenes]
+    for x in res.get("scenes") or []:
+        i = int(x.get("scene") or 0) - 1
+        if 0 <= i < len(out):
+            out[i].update({k: x[k] for k in _CONT_KEYS if x.get(k) not in (None, "")})
+    fix_structure(out)
+    return {"scenes": [{k: s.get(k) for k in _CONT_KEYS} for s in out]}
 
 
 S_DIALOG = {"type": "object", "required": ["lines"], "properties": {"lines": {"type": "array", "items": {

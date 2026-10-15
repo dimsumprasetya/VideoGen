@@ -692,7 +692,7 @@ def llm_run(d):
             except Exception:
                 pass
     task = {"ideas": llm.ideas, "storyline": llm.storyline, "script": llm.script,
-            "breakdown": llm.breakdown, "dialog": llm.dialog}.get(d.get("task"))
+            "breakdown": llm.breakdown, "dialog": llm.dialog, "continuity": llm.continuity}.get(d.get("task"))
     if not task:
         raise ValueError("Tugas LLM tidak dikenal.")
     BUSY["llm"] += 1
@@ -714,12 +714,13 @@ def out_path(name):
 
 def start_render(d):
     """Render final (tahap Editing) di thread terpisah; status lewat JOBS seperti job lain."""
-    clips = [dict(path=out_path(c.get("file")), start=c.get("start", 0), end=c.get("end", 0), text=c.get("text", ""))
+    clips = [dict(path=out_path(c.get("file")), start=c.get("start", 0), end=c.get("end", 0), text=c.get("text", ""),
+                  tr=str(c.get("tr") or ""))
              for c in d.get("clips", [])]
     name = "final_%s.mp4" % time.strftime("%Y%m%d-%H%M%S")
     spec = {"clips": clips, "transition": d.get("transition", "cut"), "fade": d.get("fade", 0.5),
             "clip_audio": bool(d.get("clip_audio", True)), "clip_vol": float(d.get("clip_vol", 1)),
-            "music": out_path(d["music"]) if d.get("music") else "", "music_vol": float(d.get("music_vol", 0.3)),
+            "music": out_path(d["music"]) if d.get("music") else "", "music_vol": float(d.get("music_vol", 0.3)), "duck": bool(d.get("duck", True)),
             "subtitles": bool(d.get("subtitles")), "out": os.path.join(OUT, name)}
     job = {"id": uuid.uuid4().hex, "params": {"prompt": "Render final (%d klip)" % len(clips), "kind": "render",
            "ref": str(d.get("ref", ""))[:80]}, "status": "running", "file": "", "error": "", "created": time.time()}

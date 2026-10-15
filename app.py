@@ -688,6 +688,15 @@ class H(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(b)))
             self.end_headers()
             self.wfile.write(b)
+        elif u.path in ("/styles.js",):  # file statis UI
+            with open(os.path.join(BASE, u.path.lstrip("/")), "rb") as f:
+                b = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/javascript; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(b)))
+            self.end_headers()
+            self.wfile.write(b)
         elif u.path == "/api/config":
             names = sorted(f for f in os.listdir(WF) if f.endswith(".json")) if os.path.isdir(WF) else []
             wfs = [{"file": f, "label": wf_meta(f).get("label") or f, "note": wf_meta(f).get("note", ""),

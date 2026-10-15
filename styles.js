@@ -2,16 +2,16 @@
    Semua thumbnail menggambar adegan yang sama (karakter, pohon, bukit, matahari) supaya gaya mudah dibandingkan.
    Pratinjau asli (Z-Image) dibuat di ui.html dan menggantikan thumbnail ini. */
 const STYLES = [
-  {id: "clay3d", name: "3D Clay / Plush", desc: "Lucu, lembut, cocok untuk anak-anak.",
+  {id: "clay3d", photo: {id: 7083142, by: "Nothing Ahead", page: "https://www.pexels.com/photo/cute-figurines-on-table-in-room-7083142/"}, name: "3D Clay / Plush", desc: "Lucu, lembut, cocok untuk anak-anak.",
    prompt: "cute 3D animation, soft clay and plush textures, rounded chunky shapes, pastel colors, soft studio lighting, tilt-shift depth of field",
    lighting: "soft warm studio light, gentle bounce light", palette: "pastel peach, mint green, sky blue"},
   {id: "anime", name: "Anime", desc: "Warna cerah, garis tegas, mata ekspresif.",
    prompt: "anime style, clean cel shading, bold line art, vibrant saturated colors, expressive big eyes, painted sky with fluffy clouds",
    lighting: "bright daylight with crisp cel shadows", palette: "sky blue, fresh green, vivid pink"},
-  {id: "cinema", name: "Sinematik", desc: "Seperti film live action.",
+  {id: "cinema", photo: {id: 4618595, by: "", page: "https://www.pexels.com/photo/a-silhouette-of-a-man-on-a-mountain-peak-during-the-golden-hour-4618595/"}, name: "Sinematik", desc: "Seperti film live action.",
    prompt: "cinematic live-action film still, photorealistic, anamorphic lens, shallow depth of field, subtle film grain, teal and orange color grade",
    lighting: "golden hour backlight, soft rim light", palette: "teal shadows, warm orange highlights"},
-  {id: "water", name: "Cat air", desc: "Lembut, ringan, seperti lukisan cat air.",
+  {id: "water", photo: {id: 6925155, by: "", page: "https://www.pexels.com/photo/watercolor-painting-of-flowers-on-white-paper-6925155/"}, name: "Cat air", desc: "Lembut, ringan, seperti lukisan cat air.",
    prompt: "soft watercolor illustration, visible paper texture, gentle color bleeds, loose brush strokes, light airy palette",
    lighting: "soft diffused daylight", palette: "light blue, sage green, warm peach"},
   {id: "storybook", name: "Buku cerita", desc: "Ilustrasi buku anak, hangat dan nyaman.",
@@ -20,28 +20,32 @@ const STYLES = [
   {id: "pixel", name: "Pixel art", desc: "Gaya game retro 16-bit.",
    prompt: "16-bit pixel art, retro video game style, limited color palette, crisp pixels, no anti-aliasing",
    lighting: "flat bright game lighting", palette: "retro NES blue, green, red"},
-  {id: "paper", name: "Paper cut-out", desc: "Kerajinan kertas berlapis, terasa buatan tangan.",
+  {id: "paper", photo: {id: 5554001, by: "", page: "https://www.pexels.com/photo/people-artistic-paper-cutout-5554001/"}, name: "Paper cut-out", desc: "Kerajinan kertas berlapis, terasa buatan tangan.",
    prompt: "layered paper cut-out craft style, handmade cardstock textures, soft drop shadows between paper layers, stop-motion feel",
    lighting: "soft top light casting small shadows between layers", palette: "teal, mustard, coral, kraft brown"},
   {id: "flat", name: "Flat vector", desc: "Bersih, sederhana, seperti motion graphics.",
    prompt: "flat vector illustration, simple geometric shapes, bold limited color palette, clean minimal motion-graphics look",
    lighting: "flat even lighting, no shadows", palette: "navy, coral, mustard, teal"},
-  {id: "lowpoly", name: "Low poly 3D", desc: "3D bersudut, geometris.",
+  {id: "lowpoly", photo: {id: 1097809, by: "Abdullah Esmail", page: "https://www.pexels.com/photo/low-poly-polygon-polygonal-1097809/"}, name: "Low poly 3D", desc: "3D bersudut, geometris.",
    prompt: "low poly 3D style, faceted geometric surfaces, simple flat-shaded polygons, stylized lighting",
    lighting: "directional sun light with faceted shading", palette: "fresh greens, sand, sky blue"},
-  {id: "comic", name: "Komik / manga", desc: "Hitam putih, tinta, raster.",
+  {id: "comic", photo: {id: 589871, by: "Srini Reddy", page: "https://www.pexels.com/photo/color-pencil-drawing-manga-art-painting-589871/"}, name: "Komik / manga", desc: "Hitam putih, tinta, raster.",
    prompt: "black and white manga comic style, inked line art, screentone halftone shading, dynamic speed lines",
    lighting: "high contrast ink shadows", palette: "black and white with gray screentone"},
-  {id: "vintage", name: "Kartun klasik", desc: "Kartun tahun 1930-an, sepia.",
+  {id: "vintage", photo: {id: 30005330, by: "M7MD", page: "https://www.pexels.com/photo/vintage-film-projector-on-stand-against-textured-wall-30005330/", css: "sepia(.85) contrast(1.05)"}, name: "Kartun klasik", desc: "Kartun tahun 1930-an, sepia.",
    prompt: "1930s vintage rubber-hose cartoon, black and white with sepia tint, film grain and scratches, bouncy exaggerated animation",
    lighting: "flat vintage lighting with vignette", palette: "sepia, black, cream"},
-  {id: "crayon", name: "Gambar krayon", desc: "Seperti gambar tangan anak.",
+  {id: "crayon", photo: {id: 8524997, by: "", page: "https://www.pexels.com/photo/close-up-of-a-child-s-drawing-of-a-family-on-paper-8524997/"}, name: "Gambar krayon", desc: "Seperti gambar tangan anak.",
    prompt: "child's crayon drawing style, wobbly hand-drawn lines, waxy crayon texture on white paper, bright playful colors",
    lighting: "flat, no realistic lighting", palette: "bright red, yellow, green, blue"},
-  {id: "neon", name: "Neon cyberpunk", desc: "Malam, lampu neon, futuristik.",
+  {id: "neon", photo: {id: 18867525, by: "Johannes Plenio", page: "https://www.pexels.com/photo/night-city-street-after-rain-illuminated-by-colorful-neon-signs-reflecting-on-a-wet-road-18867525/"}, name: "Neon cyberpunk", desc: "Malam, lampu neon, futuristik.",
    prompt: "neon cyberpunk style, dark night scene, glowing magenta and cyan neon lights, wet reflections, futuristic city atmosphere",
    lighting: "glowing neon rim lights, dark ambient", palette: "magenta, cyan, deep purple"},
 ];
+
+/* Foto contoh dari Pexels (lisensi Pexels: gratis dipakai, atribusi tidak wajib; tetap kami cantumkan).
+   Diunduh oleh app di PC pengguna lewat /api/stylethumb dan disimpan di cache/styles/; gagal = tetap ilustrasi SVG. */
+const pexelsURL = (id) => `https://images.pexels.com/photos/${id}/pexels-photo-${id}.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=640&w=360`;
 
 /* ---- potongan adegan bersama (viewBox 90x160, vertikal 9:16) */
 const SVGBITS = {

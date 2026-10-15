@@ -53,6 +53,7 @@ h3{font-size:13px;margin:0 0 6px}
 .stc .th{aspect-ratio:9/16;position:relative;background:#0e0f12}.stc .th svg,.stc .th img{width:100%;height:100%;display:block;object-fit:cover}
 .stc .nm{font-size:12px;padding:5px 7px 1px;font-weight:600}.stc .ds{font-size:11px;color:var(--mut);padding:0 7px 6px;line-height:1.3}
 .stc .pv{position:absolute;top:4px;right:4px;width:auto;margin:0;padding:3px 7px;font-size:11px;border-radius:6px;background:#000a;color:#fff;border:1px solid #fff4}
+.stc .th .ph{position:absolute;inset:0}.stc .pxt{display:none;position:absolute;left:4px;bottom:4px;font-size:10px;background:#000b;color:#fff;border-radius:5px;padding:1px 5px;text-decoration:none}
 .stc .tag{position:absolute;left:4px;bottom:4px;font-size:10px;background:#000a;color:#fff;border-radius:5px;padding:1px 5px}
 .stc .ov{position:absolute;left:0;right:0;bottom:0;background:#000c;padding:5px;font-size:11px}
 .stc.cus .th{display:flex;align-items:center;justify-content:center;font-size:30px;color:var(--mut)}
@@ -117,7 +118,7 @@ nav a{padding:5px 6px;font-size:13px}nav .n{width:16px;height:16px;line-height:1
 <button class="sec" id="b-go">Breakdown ulang dari script</button><div class="hint" id="b-msg" style="margin-top:6px"></div>
 <div class="box llmbox"></div>
 </div><div class="body">
-<h2>Gaya visual <span class="hint">Pilih satu; dipakai di semua gambar &amp; video. ▶ = pratinjau asli dengan karakter Anda (Z-Image, gratis).</span><button class="sm sec" id="st-all">Pratinjau semua</button></h2>
+<h2>Gaya visual <span class="hint">Pilih satu; dipakai di semua gambar &amp; video. Thumbnail = foto contoh (Pexels) atau ilustrasi; ▶ = pratinjau asli dengan karakter Anda (Z-Image, gratis).</span><button class="sm sec" id="st-all">Pratinjau semua</button></h2>
 <div class="stgrid" id="g-styles"></div><div class="hint" id="st-msg" style="margin-top:6px"></div>
 <h2>Karakter <button class="sm sec" data-add="chars">+ Tambah</button><button class="sm sec" data-genall="chars">Gambar semua</button></h2><div class="grid" id="g-chars"></div>
 <h2>Set / Lokasi <button class="sm sec" data-add="locs">+ Tambah</button><button class="sm sec" data-genall="locs">Gambar semua</button></h2><div class="grid" id="g-locs"></div>
@@ -410,10 +411,13 @@ const imgBox=t=>t.img?`<div class="img" onclick="lbox('${esc(t.img)}')"><img src
 const fld=(path,v,ph,ta,h)=>ta?`<textarea placeholder="${ph}" style="height:${h||60}px" oninput="${path}=this.value;save()">${esc(v)}</textarea>`:`<input placeholder="${ph}" value="${esc(v)}" oninput="${path}=this.value;save()">`;
 /* ---- gaya visual: kartu thumbnail + pratinjau asli */
 function stRender(){const cur=P.look.styleId||"";$("g-styles").innerHTML=STYLES.map(st=>{const pv=P.styleThumbs[st.id]||{};
-return `<div class="stc ${cur==st.id?"on":""}" onclick="stPick('${st.id}')" title="${esc(st.desc)}"><div class="th">${pv.img?`<img src="/outputs/${esc(pv.img)}" alt=""><span class="tag">pratinjau</span>`:styleSVG(st)}
+const ph=st.photo,credit=ph?`Foto: ${ph.by||"kontributor"} · Pexels`:"";
+return `<div class="stc ${cur==st.id?"on":""}" onclick="stPick('${st.id}')" title="${esc(st.desc+(credit?"\n"+credit:""))}"><div class="th">${pv.img?`<img src="/outputs/${esc(pv.img)}" alt=""><span class="tag">pratinjau</span>`:styleSVG(st)+
+(ph?`<img class="ph" alt="" loading="lazy" src="/api/stylethumb?pid=${ph.id}" style="${ph.css?"filter:"+ph.css:""}" onload="this.nextElementSibling.style.display='block'" onerror="phFail(this,${ph.id})"><a class="pxt" href="${esc(ph.page)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="${esc(credit)}">Pexels</a>`:"")}
 ${pv.job&&!pv.img?`<div class="ov">${jobState(pv)}</div>`:""}<button class="pv" onclick="event.stopPropagation();stPreview('${st.id}')" title="Pratinjau asli dengan karakter Anda (Z-Image)">▶${pv.img?" ulang":""}</button></div>
 <div class="nm">${cur==st.id?"✓ ":""}${esc(st.name)}</div><div class="ds">${esc(st.desc)}</div></div>`}).join("")+
 `<div class="stc cus ${cur?"":P.look.style?"on":""}" onclick="stPick('')"><div class="th">✎</div><div class="nm">${!cur&&P.look.style?"✓ ":""}Gaya sendiri</div><div class="ds">Tulis gaya di kolom kiri.</div></div>`}
+function phFail(el,pid){if(!el.dataset.d){el.dataset.d=1;el.src=pexelsURL(pid)}else{el.nextElementSibling?.remove();el.remove()}}  // cache lokal gagal -> coba langsung -> ilustrasi
 function stPick(id){if(!id){P.look.styleId="";save();stRender();$("l-style").focus();return}
 const st=STYLES.find(s=>s.id==id);const had=P.look.styleId&&P.look.styleId!=id;Object.assign(P.look,{styleId:id,style:st.prompt});
 if(!P.look.lighting||had)P.look.lighting=st.lighting;if(!P.look.palette||had)P.look.palette=st.palette;lookLoad();save();stRender();

@@ -8,3 +8,4 @@ cek-ollama.txt
 version.txt
 python_path.txt
 studio.log.old
+cache/

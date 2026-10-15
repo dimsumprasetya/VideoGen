@@ -17,7 +17,9 @@ from urllib.parse import urlparse, parse_qs, quote
 BASE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(BASE, "outputs")
 WF = os.path.join(BASE, "workflows")
-PROJ = os.path.join(BASE, "projects")  # breakdown pra-produksi: projects/<nama>.json
+PROJ = os.path.join(BASE, "projects")
+THUMBS = os.path.join(BASE, "cache", "styles")  # foto contoh gaya (Pexels), diunduh sekali
+THUMB_FAIL = {}  # pexels id -> waktu gagal terakhir (jangan coba ulang terus-menerus)  # breakdown pra-produksi: projects/<nama>.json
 VIDEO_EXT = (".mp4", ".webm", ".mov", ".mkv")
 IMAGE_EXT = (".png", ".jpg", ".jpeg", ".webp")
 AUDIO_EXT = (".mp3", ".wav", ".flac", ".ogg", ".m4a", ".opus")
@@ -592,6 +594,33 @@ def start_render(d):
     return job
 
 
+def style_thumb(pid):
+    """Path foto contoh gaya dari Pexels (cache lokal; unduh bila belum ada). None bila gagal."""
+    pid = str(pid)
+    if not pid.isdigit():
+        return None
+    path = os.path.join(THUMBS, pid + ".jpg")
+    if os.path.isfile(path):
+        return path
+    if time.time() - THUMB_FAIL.get(pid, 0) < 600:
+        return None
+    url = "https://images.pexels.com/photos/%s/pexels-photo-%s.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=640&w=360" % (pid, pid)
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (SeedanceStudio)"})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            data = r.read(3 * 1024 * 1024)
+        if not data.startswith(b"\xff\xd8") or len(data) < 2000:  # harus JPEG sungguhan
+            raise ValueError("bukan jpeg")
+        os.makedirs(THUMBS, exist_ok=True)
+        with open(path + ".tmp", "wb") as f:
+            f.write(data)
+        os.replace(path + ".tmp", path)
+        return path
+    except Exception:
+        THUMB_FAIL[pid] = time.time()
+        return None
+
+
 def merge(files):
     if not shutil.which("ffmpeg"):
         raise RuntimeError("ffmpeg tidak ditemukan di PATH.")
@@ -694,6 +723,18 @@ class H(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "application/javascript; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(b)))
+            self.end_headers()
+            self.wfile.write(b)
+        elif u.path == "/api/stylethumb":
+            path = style_thumb(parse_qs(u.query).get("pid", [""])[0])
+            if not path:
+                return self.send_json({"error": "tidak tersedia"}, 404)
+            with open(path, "rb") as f:
+                b = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Cache-Control", "max-age=604800")
             self.send_header("Content-Length", str(len(b)))
             self.end_headers()
             self.wfile.write(b)

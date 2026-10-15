@@ -48,16 +48,18 @@ h3{font-size:13px;margin:0 0 6px}
 .final video{max-height:60vh;max-width:100%;border-radius:10px;background:#000}
 .pb{height:5px;background:#262932;border-radius:3px;overflow:hidden;margin-top:4px;width:100%}.pb i{display:block;height:100%;background:var(--ac);transition:width .5s}
 #act{white-space:nowrap;margin-right:8px;font-size:12px;padding:3px 10px;border-radius:99px;background:#2a1d12;color:var(--ac)}#act:empty{display:none}
-.stgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:10px}
-.stc{border:2px solid var(--line);border-radius:10px;overflow:hidden;cursor:pointer;background:var(--panel);display:flex;flex-direction:column}
+.stgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(50px,1fr));gap:5px}
+.stc{border:2px solid var(--line);border-radius:7px;overflow:hidden;cursor:pointer;background:var(--panel);position:relative}
 .stc.on{border-color:var(--ac);box-shadow:0 0 0 2px #ff8a3d55}.stc:hover{border-color:#4a4f5c}.stc.on:hover{border-color:var(--ac)}
-.stc .th{aspect-ratio:9/16;position:relative;background:#0e0f12}.stc .th svg,.stc .th img{width:100%;height:100%;display:block;object-fit:cover}
-.stc .nm{font-size:12px;padding:5px 7px 1px;font-weight:600}.stc .ds{font-size:11px;color:var(--mut);padding:0 7px 6px;line-height:1.3}
-.stc .pv{position:absolute;top:4px;right:4px;width:auto;margin:0;padding:3px 7px;font-size:11px;border-radius:6px;background:#000a;color:#fff;border:1px solid #fff4}
-.stc .th .ph{position:absolute;inset:0}.stc .pxt{display:none;position:absolute;left:4px;bottom:4px;font-size:10px;background:#000b;color:#fff;border-radius:5px;padding:1px 5px;text-decoration:none}
-.stc .tag{position:absolute;left:4px;bottom:4px;font-size:10px;background:#000a;color:#fff;border-radius:5px;padding:1px 5px}
-.stc .ov{position:absolute;left:0;right:0;bottom:0;background:#000c;padding:5px;font-size:11px}
-.stc.cus .th{display:flex;align-items:center;justify-content:center;font-size:30px;color:var(--mut)}
+.stc .th{aspect-ratio:1;position:relative;background:#0e0f12}.stc .th svg,.stc .th img{width:100%;height:100%;display:block;object-fit:cover}
+.stc .th .ph{position:absolute;inset:0}
+.stc .nm{position:absolute;left:0;right:0;bottom:0;padding:9px 3px 2px;font-size:9.5px;line-height:1.15;font-weight:600;color:#fff;text-align:center;
+background:linear-gradient(transparent,#000d 45%);text-shadow:0 1px 2px #000;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.stc .ok{position:absolute;top:2px;right:2px;width:15px;height:15px;border-radius:50%;background:var(--ac);color:#000;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.stc .pvd{position:absolute;top:2px;left:2px;font-size:8px;background:#000b;color:#fff;border-radius:4px;padding:0 3px}
+.stc .ov{position:absolute;inset:0;background:#000a;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.stc.cus .th{display:flex;align-items:center;justify-content:center;font-size:20px;color:var(--mut);padding-bottom:12px}
+.stinfo{font-size:12px;margin-top:6px;line-height:1.4}.stinfo:empty{display:none}.stinfo a{color:var(--mut)}
 .url{font-size:14px;font-weight:700;color:var(--tx);background:#16181d;border:1px solid var(--line);border-radius:6px;padding:6px 8px;margin-top:4px;user-select:all;word-break:break-all}
 /* HP / layar sempit: satu kolom, halaman bergulir utuh */
 @media (max-width:820px){
@@ -67,8 +69,8 @@ nav a{padding:5px 6px;font-size:13px}nav .n{width:16px;height:16px;line-height:1
 #set{top:0;z-index:7}
 .pg{flex:none;grid-template-columns:1fr}.side{border-right:0;border-bottom:1px solid var(--line);overflow:visible}
 html{scroll-padding-bottom:76px}.body{display:block;overflow:visible}.body>.inner{overflow:visible;padding:14px 12px 16px}.s2,.s3,.s4,.s5{grid-template-columns:1fr}
-.grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}.stgrid{grid-template-columns:repeat(auto-fill,minmax(88px,1fr))}.next{position:sticky;bottom:0;z-index:4;padding:10px 12px;gap:8px}.next .hint{font-size:11px}.next button{padding:11px 14px}
-button.sm,.btns button,nav button,.next button,.stc .pv,.take .x{min-height:36px}button.sm,.btns button{padding:8px 12px}.stc .pv{min-width:36px}
+.grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}.stgrid{grid-template-columns:repeat(auto-fill,minmax(58px,1fr))}.next{position:sticky;bottom:0;z-index:4;padding:10px 12px;gap:8px}.next .hint{font-size:11px}.next button{padding:11px 14px}
+button.sm,.btns button,nav button,.next button,.take .x{min-height:36px}button.sm,.btns button{padding:8px 12px}
 .take .x{display:flex;align-items:center;justify-content:center;width:30px;top:0;right:0}
 #set{width:100%;position:fixed}input,select,textarea{font-size:16px}.take{width:31%}
 }
@@ -115,6 +117,9 @@ button.sm,.btns button,nav button,.next button,.stc .pv,.take .x{min-height:36px
 <div id="p-bd" class="pg"><div class="side">
 <h3>Mood &amp; style</h3><div class="hint">Dipakai di semua prompt video &amp; gambar. English.</div>
 <label>Gaya visual</label><textarea id="l-style" style="height:70px" placeholder="Cute 3D animation, soft plush and clay texture"></textarea>
+<div class="hint" style="margin:8px 0 5px">Referensi gaya: klik kotak untuk memakai.</div>
+<div class="stgrid" id="g-styles"></div><div class="stinfo" id="st-info"></div>
+<div class="btns" style="margin-top:6px"><button class="sm sec" id="st-all" title="Pratinjau asli dengan karakter Anda (Z-Image, gratis)">Pratinjau semua</button></div><div class="hint" id="st-msg" style="margin-top:4px"></div>
 <label>Kamera</label><textarea id="l-camera" style="height:54px" placeholder="vertical 9:16, gentle handheld, shallow depth of field"></textarea>
 <label>Lighting</label><textarea id="l-lighting" style="height:54px" placeholder="warm soft morning light"></textarea>
 <label>Palet warna</label><input id="l-palette" placeholder="pastel orange, cream, sky blue">
@@ -123,8 +128,6 @@ button.sm,.btns button,nav button,.next button,.stc .pv,.take .x{min-height:36px
 <button class="sec" id="b-go">Breakdown ulang dari script</button><div class="hint" id="b-msg" style="margin-top:6px"></div>
 <div class="box llmbox"></div>
 </div><div class="body"><div class="inner">
-<h2>Gaya visual <span class="hint">Pilih satu; dipakai di semua gambar &amp; video. Thumbnail = foto contoh (Pexels) atau ilustrasi; ▶ = pratinjau asli dengan karakter Anda (Z-Image, gratis).</span><button class="sm sec" id="st-all">Pratinjau semua</button></h2>
-<div class="stgrid" id="g-styles"></div><div class="hint" id="st-msg" style="margin-top:6px"></div>
 <h2>Karakter <button class="sm sec" data-add="chars">+ Tambah</button><button class="sm sec" data-genall="chars">Gambar semua</button></h2><div class="grid" id="g-chars"></div>
 <h2>Set / Lokasi <button class="sm sec" data-add="locs">+ Tambah</button><button class="sm sec" data-genall="locs">Gambar semua</button></h2><div class="grid" id="g-locs"></div>
 <h2>Properti <button class="sm sec" data-add="props">+ Tambah</button></h2><div class="grid" id="g-props"></div>
@@ -172,6 +175,7 @@ button.sm,.btns button,nav button,.next button,.stc .pv,.take .x{min-height:36px
 <div class="box"><b>ComfyUI</b> <span id="c-st"></span>
 <div class="hint" style="margin:4px 0">Tempel lokasi ComfyUI.exe / folder ComfyUI / port (mis. 8188) bila ComfyUI sudah jalan.</div>
 <input id="c-path" placeholder="C:\AI\ComfyUI_windows_portable"><button class="sec" id="c-find" style="margin-top:6px">Cari &amp; sambungkan</button>
+<button class="sec" style="margin-top:6px" onclick="comfyRestart(this)" title="Matikan ComfyUI yang dinyalakan aplikasi ini (bila macet) lalu nyalakan lagi">Nyalakan ulang ComfyUI</button>
 <div class="hint" id="c-msg"></div><pre class="hint" id="c-log" style="white-space:pre-wrap;margin:6px 0 0"></pre></div>
 <div class="box"><b>Model untuk workflow lokal</b><select id="m-wf" style="margin-top:6px"></select><div id="m-list"></div></div>
 <div class="box"><b>Penulis AI (Ollama)</b><div class="llmbox" style="margin-top:6px"></div></div>
@@ -304,7 +308,8 @@ const jobState=o=>{if(!o||!o.job)return "";if(o.error)return `<span class="err">
 const JLABEL={style:"Pratinjau gaya",chars:"Gambar karakter",locs:"Gambar lokasi",scenes:"Sketsa",scene:"Video scene",music:"Musik",final:"Render final"};
 const jobLabel=j=>JLABEL[(j.params?.ref||"").split("/").pop()]||(j.params?.kind=="render"?"Render final":"Generate");
 let LLMP={},DLST={},needRender=false;
-function updateJobSpans(){document.querySelectorAll(".js[data-job]").forEach(el=>{const j=JM[el.dataset.job];if(j)el.innerHTML=jobProg(j)});const E=P.edit;
+function updateJobSpans(){document.querySelectorAll(".js[data-job]").forEach(el=>{const j=JM[el.dataset.job];if(j)el.innerHTML=jobProg(j)});
+document.querySelectorAll(".jsp[data-job]").forEach(el=>{if(JM[el.dataset.job])el.textContent=jobPct(el.dataset.job)});const E=P.edit;
 if(E.rjob&&JM[E.rjob]){const p=JM[E.rjob].progress||{};$("e-go").textContent=`Merender… ${p.pct||0}%`;$("e-msg").innerHTML=jobProg(JM[E.rjob])}
 if(E.mjob&&JM[E.mjob]){const p=JM[E.mjob].progress||{};$("e-mgo").textContent=`Membuat musik… ${p.pct||0}%`;$("e-mmsg").innerHTML=jobProg(JM[E.mjob])}}
 function actChip(){const js=Object.values(JM),out=[];const run=js.find(j=>j.status=="running"||j.status=="queued"&&j.started);
@@ -319,12 +324,23 @@ if(up||chg)(async()=>{const did=up&&await loadCfg();  // ComfyUI baru tersambung
 if(!did&&chg){if(typing())needRender=true;else renderTab(TAB)}})();  // tombol per item ikut aktif/nonaktif saat ComfyUI/API key berubah
 if(VER0===null)VER0=s.version;
 DLST=s.dl||{};if(DLST.active)DLON=true;actChip();
-const b=[];if(!s.comfy)b.push(`<div class="w">ComfyUI belum tersambung (dibutuhkan untuk gambar &amp; video). <button class="sec" onclick="openSet()">Pengaturan</button></div>`);
+const b=[];if(!s.comfy)b.push(`<div class="w">${comfyWhy(s.comfy_info)} <button class="sec" onclick="openSet()">Pengaturan</button>${["crashloop","exited","starting","waiting"].includes((s.comfy_info||{}).state)?` <button class="sec" onclick="comfyRestart(this)">Nyalakan ulang ComfyUI</button>`:""}</div>`);
 if(DLON){tabModels();if($("set").style.display=="block")setModels()}
 if(VER0!==s.version&&s.version)b.push(`<div class="i">Aplikasi sudah diperbarui ke versi ${esc(s.version)}. <button onclick="location.reload()">Muat ulang</button></div>`);
-const bh=b.join("");if($("banner").innerHTML!=bh)$("banner").innerHTML=bh;$("c-st").innerHTML=s.comfy?`<span class="okc">tersambung</span>`:`<span class="err">belum tersambung</span>`;$("c-log").textContent=s.log||"";
+const bh=b.join("");if($("banner").innerHTML!=bh)$("banner").innerHTML=bh;$("c-st").innerHTML=s.comfy?`<span class="okc">tersambung</span>`:`<span class="err">belum tersambung</span>`;$("c-log").textContent=s.comfy?s.log||"":(s.comfy_info?.log?"Akhir comfy.log:\n"+s.comfy_info.log:s.log||"");
 $("k-st").textContent=s.has_key?"(tersimpan)":"(belum diisi)";if(Date.now()-($("u-st").dataset.t||0)>30000)$("u-st").innerHTML=`Versi ${esc(s.version||"?")} · branch ${esc(s.branch||"")} · auto-update ${s.auto_update?"aktif":"mati"}`;
 syncButtons()}
+/* kenapa ComfyUI belum tersambung (status dari supervisor, lihat comfy.state.json) */
+function comfyWhy(i){i=i||{};const sec=i.secs||0;
+if(i.state=="starting")return `ComfyUI sedang dinyalakan… ${fmtT(sec)}${sec>240?" (lama sekali — cek log di ⚙ Pengaturan)":" (biasanya 30 dtk – 3 menit)"}.`;
+if(i.state=="crashloop")return `ComfyUI berhenti sendiri berulang kali${i.code!=null?" (kode "+esc(i.code)+")":""}. Dicoba lagi otomatis ${fmtT(i.retry||0)} lagi. Penyebabnya ada di log (⚙ Pengaturan).`;
+if(i.state=="exited")return `ComfyUI berhenti (kode ${esc(i.code)}); dinyalakan ulang otomatis…`;
+if(i.state=="not_found")return "Lokasi ComfyUI belum diatur atau tidak ditemukan. Isi di ⚙ Pengaturan.";
+if(i.state=="running")return `ComfyUI menyala tapi aplikasi belum bisa terhubung: ${esc(i.err||"")}.`;
+if(i.state=="nosup")return `ComfyUI belum tersambung${i.err?" ("+esc(i.err)+")":""}. Pengawas aplikasi tidak berjalan; buka lewat shortcut <b>Seedance Studio</b> agar ComfyUI dinyalakan otomatis.`;
+return `ComfyUI belum tersambung${i.err?" ("+esc(i.err)+")":""}; menunggu…`}
+async function comfyRestart(btn){const t=btn.textContent;btn.disabled=true;btn.textContent="Menyalakan…";const r=await api("/api/comfy/restart",{});if(r.error)alert(r.error);
+setTimeout(()=>{btn.disabled=false;btn.textContent=t},8000)}
 function openSet(){$("set").style.display="block";setModels();llmStatus();remoteBox()}
 async function remoteBox(msg){const el=$("r-body");
 if(ST.remote){$("r-st").innerHTML=`<span class="okc">terhubung dari perangkat ini</span>`;
@@ -479,14 +495,20 @@ const imgBox=t=>t.img?`<div class="img" onclick="lbox('${esc(t.img)}')"><img src
 const fld=(path,v,ph,ta,h)=>ta?`<textarea placeholder="${ph}" style="height:${h||60}px" oninput="${path}=this.value;save()">${esc(v)}</textarea>`:`<input placeholder="${ph}" value="${esc(v)}" oninput="${path}=this.value;save()">`;
 /* ---- gaya visual: kartu thumbnail + pratinjau asli */
 let STSIG="";
-function stRender(){const cur=P.look.styleId||"",sig=JSON.stringify([PN,cur,!!P.look.style,comfyReady(),P.styleThumbs]);if(sig==STSIG&&$("g-styles").firstChild)return;STSIG=sig;$("g-styles").innerHTML=STYLES.map(st=>{const pv=P.styleThumbs[st.id]||{};
-const ph=st.photo,credit=ph?`Foto: ${ph.by||"kontributor"} · Pexels`:"";
-return `<div class="stc ${cur==st.id?"on":""}" onclick="stPick('${st.id}')" title="${esc(st.desc+(credit?"\n"+credit:""))}"><div class="th">${pv.img?`<img src="/outputs/${esc(pv.img)}" alt=""><span class="tag">pratinjau</span>`:styleSVG(st)+
-(ph?`<img class="ph" alt="" loading="lazy" src="/api/stylethumb?pid=${ph.id}" style="${ph.css?"filter:"+ph.css:""}" onload="this.nextElementSibling.style.display='block';this.previousElementSibling?.tagName=='svg'&&this.previousElementSibling.remove()" onerror="phFail(this,${ph.id})"><a class="pxt" href="${esc(ph.page)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="${esc(credit)}">Pexels</a>`:"")}
-${pv.job&&!pv.img?`<div class="ov">${jobState(pv)}</div>`:""}<button class="pv" ${pend(pv)||!comfyReady()?"disabled":""} onclick="event.stopPropagation();stPreview('${st.id}')" title="${!comfyReady()?NO_C:"Pratinjau asli dengan karakter Anda (Z-Image)"}">${pend(pv)?"…":"▶"+(pv.img?" ulang":"")}</button></div>
-<div class="nm">${cur==st.id?"✓ ":""}${esc(st.name)}</div><div class="ds">${esc(st.desc)}</div></div>`}).join("")+
-`<div class="stc cus ${cur?"":P.look.style?"on":""}" onclick="stPick('')"><div class="th">✎</div><div class="nm">${!cur&&P.look.style?"✓ ":""}Gaya sendiri</div><div class="ds">Tulis gaya di kolom kiri.</div></div>`}
-function phFail(el,pid){if(!el.dataset.d){el.dataset.d=1;el.src=pexelsURL(pid)}else{el.nextElementSibling?.remove();el.remove()}}  // cache lokal gagal -> coba langsung -> ilustrasi
+function stRender(){const cur=P.look.styleId||"",sig=JSON.stringify([PN,cur,!!P.look.style,comfyReady(),P.styleThumbs]);if(sig==STSIG&&$("g-styles").firstChild)return;STSIG=sig;
+$("g-styles").innerHTML=STYLES.map(st=>{const pv=P.styleThumbs[st.id]||{},ph=st.photo;
+return `<div class="stc ${cur==st.id?"on":""}" onclick="stPick('${st.id}')" title="${esc(st.name+" — "+st.desc)}"><div class="th">${pv.img?`<img src="/outputs/${esc(pv.img)}" alt=""><span class="pvd">asli</span>`:stSmallSVG(st)+
+(ph?`<img class="ph" alt="" loading="lazy" src="/api/stylethumb?pid=${ph.id}" style="${ph.css?"filter:"+ph.css:""}" onload="this.previousElementSibling?.tagName=='svg'&&this.previousElementSibling.remove()" onerror="phFail(this,${ph.id})">`:"")}
+${pend(pv)?`<div class="ov"><span class="jsp" data-job="${esc(pv.job)}">${jobPct(pv.job)}</span></div>`:""}${cur==st.id?`<span class="ok">✓</span>`:""}<div class="nm">${esc(st.name)}</div></div></div>`}).join("")+
+`<div class="stc cus ${cur?"":P.look.style?"on":""}" onclick="stPick('')" title="Tulis gaya sendiri di kolom Gaya visual"><div class="th">✎</div>${!cur&&P.look.style?`<span class="ok">✓</span>`:""}<div class="nm">Gaya sendiri</div></div>`;
+const st=STYLES.find(s=>s.id==cur),pv=st&&P.styleThumbs[st.id]||{},ph=st&&st.photo;
+$("st-info").innerHTML=!st?(P.look.style?`<b>Gaya sendiri</b> <span class="hint">— sesuai teks di kolom Gaya visual.</span>`:`<span class="hint">Belum dipilih.</span>`):
+`<b>${esc(st.name)}</b> <span class="hint">— ${esc(st.desc)}${ph?` Foto contoh: ${esc(ph.by||"kontributor")} · <a href="${esc(ph.page)}" target="_blank" rel="noopener">Pexels</a>`:""}</span>`+
+(pv.job&&!pv.img?`<div style="margin-top:4px">${jobState(pv)}</div>`:"")+
+`<div class="btns" style="margin-top:5px"><button class="sm sec" ${pend(pv)||!comfyReady()?"disabled":""} title="${!comfyReady()?NO_C:"Pratinjau asli dengan karakter Anda (Z-Image, gratis)"}" onclick="stPreview('${st.id}')">${pend(pv)?"Membuat pratinjau…":pv.img?"▶ Buat ulang pratinjau":"▶ Pratinjau asli"}</button>${pv.img?`<button class="sm sec" onclick="lbox('${esc(pv.img)}')">Lihat besar</button>`:""}</div>`}
+const stSmallSVG=st=>st.id=="pixel"?styleSVG(st).replace('<g filter="url(#stpixelp)">',"<g>"):styleSVG(st);  // filter piksel 1 unit hilang di kotak kecil (jadi hitam)
+const jobPct=id=>{const j=JM[id];return j&&j.status=="done"?"100%":((j&&j.progress||{}).pct||0)+"%"};
+function phFail(el,pid){if(!el.dataset.d){el.dataset.d=1;el.src=pexelsURL(pid)}else el.remove()}  // cache lokal gagal -> coba langsung -> ilustrasi
 function stPick(id){if(!id){P.look.styleId="";save();stRender();$("l-style").focus();return}
 const st=STYLES.find(s=>s.id==id);const had=P.look.styleId&&P.look.styleId!=id;Object.assign(P.look,{styleId:id,style:st.prompt});
 if(!P.look.lighting||had)P.look.lighting=st.lighting;if(!P.look.palette||had)P.look.palette=st.palette;lookLoad();save();stRender();
@@ -498,7 +520,7 @@ async function stPreview_(id,quiet){const st=STYLES.find(s=>s.id==id),wf=$("b-im
 if(!quiet&&!(await needModels("bd")))return false;
 const r=await api("/api/generate",{prompt:`${st.prompt}. ${stSubject()}. Full body character in a simple setting, vertical composition, high quality.`,workflow:wf,aspect:"9:16",resolution:"480p",duration:5,seed:-1,ref:PN+"/style"});
 if(r.error){alert(r.error);return false}P.styleThumbs[id]={job:r.id,t:Date.now(),img:"",error:""};save();if(!quiet){await poll();stRender()}return true}
-$("st-all").onclick=async()=>{const todo=STYLES.filter(st=>!(P.styleThumbs[st.id]||{}).img);if(!todo.length)return alert("Semua gaya sudah punya pratinjau. Klik ▶ ulang di kartu untuk membuat ulang.");
+$("st-all").onclick=async()=>{const todo=STYLES.filter(st=>!(P.styleThumbs[st.id]||{}).img);if(!todo.length)return alert("Semua gaya sudah punya pratinjau. Untuk membuat ulang: pilih gayanya, lalu klik '▶ Buat ulang pratinjau'.");
 if(!confirm(`Buat ${todo.length} gambar pratinjau dengan Z-Image (lokal, gratis)? Di GPU 8 GB kira-kira ${Math.ceil(todo.length*20/60)}-${Math.ceil(todo.length*45/60)} menit.`))return;
 if(!(await needModels("bd")))return;await busyRun($("st-all"),"Mengantre…",async()=>{for(const st of todo)if(!pend(P.styleThumbs[st.id])&&!(await stPreview(st.id,true)))break;await poll();stRender()})};
 function bdRender(){stRender();

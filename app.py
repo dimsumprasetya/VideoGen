@@ -87,25 +87,35 @@ CFG = load_cfg()
 
 
 # ---------------------------------------------------------------- ComfyUI
+# ComfyUI lokal: jangan lewat proxy sistem Windows. Python memakai proxy dari pengaturan Internet Windows
+# (VPN/proxy) juga untuk http://127.0.0.1 bila tidak ada di daftar pengecualian -> ComfyUI dianggap mati.
+LOCAL = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+COMFY_STATE = os.path.join(BASE, "comfy.state.json")  # ditulis supervisor: sedang menyala / berhenti / tidak ditemukan
+COMFY_LOG = os.path.join(BASE, "comfy.log")  # output ComfyUI dari supervisor
+COMFY_RETRY = os.path.join(BASE, "comfy.retry")  # minta supervisor menyalakan ComfyUI sekarang
+
+
 def http_json(url, data=None, timeout=15):
     req = urllib.request.Request(url, method="POST" if data is not None else "GET")
     if data is not None:
         req.data = json.dumps(data).encode()
         req.add_header("Content-Type", "application/json")
-    with urllib.request.urlopen(req, timeout=timeout) as r:
+    with LOCAL.open(req, timeout=timeout) as r:
         return json.loads(r.read().decode())
 
 
 _EXTRA = {"t": 0.0, "ports": []}
-_CU = {"t": 0.0, "url": None}
+_CU = {"t": 0.0, "url": None, "err": ""}
 _CU_LOCK = threading.Lock()
 
 
-def _alive(u):
+def _alive(u, why=None):
     try:
         http_json(u + "/system_stats", timeout=4)
         return u
-    except Exception:
+    except Exception as e:
+        if why is not None:
+            why.append("%s terbuka tapi tidak menjawab seperti ComfyUI (%s)" % (u.split("//")[-1], str(e)[:120]))
         return None
 
 
@@ -124,9 +134,11 @@ def _find_comfy():
         return last
     env = os.environ.get("COMFYUI_URL", "").rstrip("/")  # sama seperti backend Luminar
     cands = ([env] if env else []) + ["http://127.0.0.1:%d" % p for p in CFG["comfy_ports"]]
+    why = []
     for u in cands:
-        if _port_open(u) and _alive(u):
+        if _port_open(u) and _alive(u, why):
             return u
+    _CU["err"] = "; ".join(why) or "port %s tertutup" % "/".join(str(p) for p in CFG["comfy_ports"])
     if time.time() - _EXTRA["t"] > 120:  # PowerShell itu berat: jarang-jarang saja
         _EXTRA["t"] = time.time()
         _EXTRA["ports"] = [r["port"] for r in comfy_detect.running_comfy()]
@@ -135,6 +147,24 @@ def _find_comfy():
         if u not in cands and _port_open(u) and _alive(u):
             return u
     return None
+
+
+def comfy_info():
+    """Keterangan untuk UI saat ComfyUI belum tersambung: status dari supervisor + akhir comfy.log."""
+    info = {"state": "", "err": _CU["err"], "log": log_tail(COMFY_LOG, 8)}
+    try:
+        with open(COMFY_STATE, encoding="utf-8") as f:
+            st = json.load(f)
+        if time.time() - st.get("t", 0) < 30:  # supervisor masih hidup
+            now = time.time()
+            info.update(state=st.get("state", ""), code=st.get("code"),
+                        secs=int(now - st["since"]) if st.get("since") else 0,
+                        retry=int(max(0, st.get("retry_at", 0) - now)))
+        else:
+            info["state"] = "nosup"
+    except (OSError, ValueError, KeyError):
+        info["state"] = "nosup"
+    return info
 
 
 def comfy_url():
@@ -468,7 +498,7 @@ def run_job(job):
                                     os.path.splitext(v["filename"])[1])
                 os.makedirs(OUT, exist_ok=True)
                 job["progress"] = {"pct": 99, "stage": "Mengambil hasil"}
-                with urllib.request.urlopen(url, timeout=120) as r, open(os.path.join(OUT, name), "wb") as f:
+                with LOCAL.open(url, timeout=120) as r, open(os.path.join(OUT, name), "wb") as f:
                     shutil.copyfileobj(r, f)
                 job["file"] = name
                 job["progress"] = {"pct": 100, "stage": "Selesai"}
@@ -510,13 +540,14 @@ def busy():
     return jobs or BUSY["llm"] > 0 or BUSY["render"] > 0 or DL["active"] or llm.PULL["active"]
 
 
-def log_tail(n=4):
-    """Baris terakhir studio.log tanpa membaca seluruh file (bisa sampai 5 MB)."""
+def log_tail(path=None, n=4):
+    """Baris terakhir log tanpa membaca seluruh file (bisa sampai 5 MB)."""
     try:
-        with open(os.path.join(BASE, "studio.log"), "rb") as f:
+        with open(path or os.path.join(BASE, "studio.log"), "rb") as f:
             f.seek(0, 2)
             f.seek(max(0, f.tell() - 4096))
-            return "\n".join(f.read().decode("utf-8", "replace").splitlines()[-n:])
+            lines = [x for x in f.read().decode("utf-8", "replace").replace("\r", "\n").splitlines() if x.strip()]
+            return "\n".join(lines[-n:])
     except OSError:
         return ""
 
@@ -871,7 +902,9 @@ class H(BaseHTTPRequestHandler):
         elif u.path == "/api/busy":
             self.send_json({"busy": busy()})
         elif u.path == "/api/status":
-            self.send_json({"comfy": bool(comfy_url()), "ffmpeg": has_tool("ffmpeg"), "log": log_tail(), "dl": DL,
+            cu = comfy_url()
+            self.send_json({"comfy": bool(cu), "comfy_info": None if cu else comfy_info(),
+                            "ffmpeg": has_tool("ffmpeg"), "log": log_tail(), "dl": DL,
                             "has_key": bool(api_key()), "version": updater.local_version()[:7],
                             "branch": updater.branch(), "auto_update": CFG.get("auto_update", True),
                             "remote": self.who == "remote"})
@@ -1033,9 +1066,10 @@ class H(BaseHTTPRequestHandler):
                 m = re.match(r"^(?:https?://)?(?:127\.0\.0\.1|localhost)?:?(\d{2,5})/?$", (d.get("path") or "").strip())
                 if m:  # user memasukkan port / URL ComfyUI yang sudah jalan
                     port = int(m.group(1))
-                    if not _alive(port):
-                        raise RuntimeError("Tidak ada ComfyUI di port %d." % port)
+                    if not _alive("http://127.0.0.1:%d" % port):
+                        raise RuntimeError("Tidak ada ComfyUI yang menjawab di port %d." % port)
                     save_cfg(comfy_ports=[port] + [x for x in CFG["comfy_ports"] if x != port])
+                    _CU["t"] = 0
                     return self.send_json({"cmd": "port %d" % port, "cwd": ""})
                 r = comfy_detect.resolve(d.get("path", "")) if d.get("path") else None
                 if not r:
@@ -1045,6 +1079,11 @@ class H(BaseHTTPRequestHandler):
                     raise RuntimeError("ComfyUI tidak ditemukan di lokasi itu. Pilih ComfyUI.exe atau folder yang berisi main.py.")
                 save_cfg(comfy_cmd=r[0], comfy_cwd=r[1] or "")
                 self.send_json({"cmd": r[0], "cwd": r[1] or ""})
+            elif self.path == "/api/comfy/restart":  # supervisor membaca file ini dalam <= 5 dtk
+                with open(COMFY_RETRY, "w") as f:
+                    f.write(str(time.time()))
+                _CU["t"] = 0
+                self.send_json({"ok": True})
             elif self.path == "/api/models/download":
                 base = comfy_url()
                 ms = model_status(base, wf_meta(os.path.basename(d.get("workflow", ""))))

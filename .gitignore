@@ -9,3 +9,8 @@ version.txt
 python_path.txt
 studio.log.old
 cache/
+comfy.log
+comfy.log.old
+comfy.state.json
+comfy.state.json.tmp
+comfy.retry

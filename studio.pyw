@@ -10,7 +10,11 @@ import comfy_detect
 import updater
 NOWIN = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 LOG = os.path.join(BASE, "studio.log")
+CLOG = os.path.join(BASE, "comfy.log")  # output ComfyUI sendiri, supaya error-nya bisa ditampilkan di UI
+STATE = os.path.join(BASE, "comfy.state.json")  # dibaca app.py: menyala / berhenti / tidak ditemukan
+RETRY = os.path.join(BASE, "comfy.retry")  # dibuat app.py: tombol "Nyalakan ulang ComfyUI"
 PIDS = os.path.join(BASE, "studio.pids")
+LOCAL = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # 127.0.0.1: jangan lewat proxy Windows
 SELF_FILES = {"studio.pyw", "updater.py", "comfy_detect.py"}  # berubah -> supervisor ikut restart
 
 
@@ -19,12 +23,43 @@ def log(msg):
         f.write("%s %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), msg))
 
 
-def rotate_log():
+def rotate_log(path=LOG):
     try:
-        if os.path.getsize(LOG) > 5 * 1024 * 1024:  # output ComfyUI ikut masuk; jangan sampai membengkak
-            os.replace(LOG, LOG + ".old")
+        if os.path.getsize(path) > 5 * 1024 * 1024:  # jangan sampai membengkak
+            os.replace(path, path + ".old")
     except OSError:
         pass
+
+
+def write_state(**kw):
+    kw["t"] = time.time()
+    try:
+        with open(STATE + ".tmp", "w", encoding="utf-8") as f:
+            json.dump(kw, f)
+        os.replace(STATE + ".tmp", STATE)
+    except OSError:
+        pass
+
+
+def pid_alive(pid):
+    """Proses masih jalan? (Windows: os.kill akan MEMATIKAN proses, jadi pakai OpenProcess.)"""
+    if not pid:
+        return False
+    if os.name == "nt":
+        import ctypes
+        k = ctypes.windll.kernel32
+        h = k.OpenProcess(0x1000, False, int(pid))  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return False
+        code = ctypes.c_ulong()
+        ok = k.GetExitCodeProcess(h, ctypes.byref(code))
+        k.CloseHandle(h)
+        return bool(ok) and code.value == 259  # STILL_ACTIVE
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except OSError:
+        return False
 
 
 def cfg():
@@ -54,7 +89,7 @@ def app_busy(port):
     """True bila app sedang mengerjakan job / menulis; pembaruan ditunda."""
     try:
         req = urllib.request.Request("http://127.0.0.1:%d/api/busy" % port, headers={"X-Studio": "1"})
-        return bool(json.loads(urllib.request.urlopen(req, timeout=5).read().decode()).get("busy"))
+        return bool(json.loads(LOCAL.open(req, timeout=5).read().decode()).get("busy"))
     except Exception:
         return False
 
@@ -115,20 +150,60 @@ def main():
     next_update = time.time() + 60
     restart_self = False
     misses, need = 0, 1  # saat start langsung; setelahnya 3x berturut-turut mati (15 dtk) baru dinyalakan
+    since, code, exits, pause_until, state, missing = (time.time() if adopted else 0.0), None, [], 0.0, "", False
     try:
         while True:
+          try:
             c = cfg()  # baca ulang: pengaturan dari UI langsung berlaku
             alive = comfy_alive(c)
             misses = 0 if alive else misses + 1
-            if not alive and misses >= need and (comfy is None or comfy.poll() is not None):
-                adopted = misses = 0
+            if comfy is not None and comfy.poll() is not None:  # ComfyUI milik supervisor berhenti
+                code, comfy = comfy.returncode, None
+                if not alive:  # bukan karena port sudah dipakai ComfyUI lain
+                    log("ComfyUI berhenti (kode %s); lihat comfy.log" % code)
+                    exits = [t for t in exits if time.time() - t < 600] + [time.time()]
+                    if len(exits) >= 3:  # crash berulang: jangan dinyalakan terus-menerus
+                        pause_until, exits = time.time() + 300, []
+                        log("ComfyUI berhenti 3x dalam 10 menit; dicoba lagi 5 menit lagi")
+            if adopted and not pid_alive(adopted):
+                adopted = 0
+            if os.path.exists(RETRY):  # tombol di UI
+                try:
+                    os.remove(RETRY)
+                except OSError:
+                    pass
+                pause_until, exits, misses = 0.0, [], max(misses, 3)
+                own = comfy.pid if comfy is not None else adopted
+                if own:  # ComfyUI milik supervisor macet (port tak kunjung terbuka / tidak menjawab): matikan dulu
+                    kill(own)
+                    for _ in range(10):  # tunggu port dilepas, lalu langsung dinyalakan lagi
+                        if not comfy_alive(c):
+                            break
+                        time.sleep(0.5)
+                    comfy, adopted, alive = None, 0, comfy_alive(c)
+                log("nyalakan ulang ComfyUI diminta dari UI")
+            if pause_until and time.time() >= pause_until:
+                pause_until = 0.0
+            if not alive and misses >= need and comfy is None and not adopted and not pause_until:
+                misses = 0
                 cmd, cwd = comfy_detect.detect(c)
                 if cmd:
                     log("start comfy: " + cmd)
+                    rotate_log(CLOG)
+                    with open(CLOG, "a", encoding="utf-8") as f:
+                        f.write("\n%s === start: %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), cmd))
                     comfy = subprocess.Popen(cmd, cwd=cwd, shell=True, creationflags=NOWIN,
-                                             stdout=open(LOG, "a"), stderr=subprocess.STDOUT)
-                else:
-                    log("ComfyUI tidak ditemukan; isi comfy_cmd di studio_config.json")
+                                             stdout=open(CLOG, "a"), stderr=subprocess.STDOUT)
+                    since, code = time.time(), None
+                elif not missing:
+                    log("ComfyUI tidak ditemukan; isi lokasinya di Pengaturan (studio_config.json: comfy_cmd)")
+                missing = not cmd
+            if alive:
+                missing = False
+            new = ("running" if alive else "starting" if comfy is not None or adopted else "crashloop" if pause_until
+                   else "not_found" if missing else "exited" if code is not None else "waiting")
+            state = new
+            write_state(state=state, since=since, code=code, retry_at=pause_until, own=bool(comfy or adopted))
             need = 3
             if app is None or app.poll() is not None:
                 log("start app.py")
@@ -159,7 +234,9 @@ def main():
                         log("restart app.py setelah update")
                         app.terminate()
                         app.wait(10)
-            time.sleep(5)
+          except Exception as e:  # satu putaran gagal (mis. file terkunci) tidak boleh mematikan ComfyUI & app
+              log("supervisor: %r" % e)
+          time.sleep(5)
     finally:
         if restart_self:  # supervisor baru meneruskan ComfyUI yang sedang jalan
             if app and app.poll() is None:

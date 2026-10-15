@@ -111,15 +111,27 @@ def build(job, tmpdir):
     return cmd, total
 
 
-def render(job):
+def render(job, progress=None):
+    """progress(pct) dipanggil selama ffmpeg berjalan (dari -progress: waktu yang sudah dirender / durasi total)."""
     if not shutil.which("ffmpeg"):
         raise RuntimeError("ffmpeg tidak ditemukan di PATH.")
     tmp = tempfile.mkdtemp(prefix="studio-render-")
     try:
         cmd, total = build(job, tmp)
-        r = subprocess.run(cmd, capture_output=True, creationflags=NOWIN)
-        if r.returncode:
-            raise RuntimeError("ffmpeg gagal: " + r.stderr.decode(errors="replace")[-600:])
+        cmd = cmd[:-1] + ["-progress", "pipe:1", "-nostats", cmd[-1]]
+        with open(os.path.join(tmp, "ffmpeg-err.txt"), "w+b") as err:
+            p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=err, creationflags=NOWIN)
+            for line in p.stdout:
+                key, _, val = line.decode(errors="replace").strip().partition("=")
+                if key in ("out_time_us", "out_time_ms") and progress and total:
+                    try:
+                        progress(max(0, min(99, int(100 * int(val) / 1e6 / total))))
+                    except ValueError:
+                        pass  # "N/A" di awal
+            p.wait()
+            if p.returncode:
+                err.seek(0)
+                raise RuntimeError("ffmpeg gagal: " + err.read().decode(errors="replace")[-600:])
         return total
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

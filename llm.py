@@ -5,6 +5,7 @@ import json, re, threading, urllib.error, urllib.request
 RECOMMENDED = "qwen3:8b"   # ~5 GB, muat di VRAM 8 GB, bagus untuk bahasa Indonesia
 ALTERNATIVES = ["qwen2.5:7b", "gemma3:4b", "llama3.2:3b"]  # cadangan bila qwen3 gagal (mis. Ollama versi lama)
 _DIRECT = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # Ollama lokal: jangan lewat proxy sistem
+PROG = {"active": False, "task": "", "stage": "", "tokens": 0, "est": 0, "pct": 0}  # progres penulisan saat ini
 PULL = {"active": False, "model": "", "status": "", "done": 0, "total": 0, "error": ""}
 
 
@@ -88,16 +89,38 @@ def _parse(text):
         raise RuntimeError("Jawaban LLM bukan JSON: " + text[:200])
 
 
-def chat_json(base, model, system, user, schema, keep_alive="2m", timeout=900):
-    """Minta jawaban JSON sesuai schema (structured output Ollama)."""
-    body = {"model": model, "stream": False, "format": schema, "keep_alive": keep_alive, "think": False,
+def chat_json(base, model, system, user, schema, keep_alive="2m", timeout=900, est=600, task=""):
+    """Minta jawaban JSON sesuai schema (structured output Ollama). Streaming supaya PROG berisi persen:
+    token yang sudah ditulis / perkiraan panjang jawaban (est), maks 95% sampai selesai."""
+    body = {"model": model, "stream": True, "format": schema, "keep_alive": keep_alive, "think": False,
             "options": {"temperature": 0.8, "num_ctx": 8192},
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
+    PROG.update(active=True, task=task, stage="Memuat model AI", tokens=0, est=max(50, int(est)), pct=0)
+    try:
+        return _chat(base, body, timeout)
+    finally:
+        PROG.update(active=False, pct=100, stage="Selesai")
+
+
+def _chat(base, body, timeout):
     for attempt in (1, 2):
         try:
+            text = []
             with _req(base + "/api/chat", body, timeout=timeout) as r:
-                res = json.loads(r.read().decode())
-            return _parse(res.get("message", {}).get("content", ""))
+                for line in r:
+                    if not line.strip():
+                        continue
+                    ev = json.loads(line.decode())
+                    if ev.get("error"):
+                        raise RuntimeError("Ollama: " + str(ev["error"])[:300])
+                    piece = (ev.get("message") or {}).get("content", "")
+                    if piece:
+                        text.append(piece)
+                        PROG["tokens"] += 1
+                        PROG.update(stage="Menulis", pct=min(95, int(100 * PROG["tokens"] / PROG["est"])))
+                    if ev.get("done"):
+                        break
+            return _parse("".join(text))
         except urllib.error.HTTPError as e:
             msg = e.read().decode(errors="replace")
             if attempt == 1 and "think" in msg:   # model/versi Ollama tanpa dukungan opsi think
@@ -145,7 +168,7 @@ def ideas(base, model, d):
     user = ("Generate %d different story ideas for a short video based on this prompt:\n%s\n\n%s\n"
             "Write title, logline (1 sentence) and hook (what we see in the first 3 seconds) in %s."
             % (n, d.get("prompt", ""), _brief(d), d.get("lang") or "Bahasa Indonesia"))
-    return chat_json(base, model, SYSTEM, user, S_IDEAS)
+    return chat_json(base, model, SYSTEM, user, S_IDEAS, est=70 * n + 20, task="ideas")
 
 
 def storyline(base, model, d):
@@ -155,7 +178,7 @@ def storyline(base, model, d):
             "setting, and beginning / middle / end (each 1-3 sentences). Write in %s."
             % (d.get("duration") or 30, d.get("title", ""), d.get("logline", ""), d.get("hook", ""),
                d.get("prompt", ""), _brief(d), d.get("lang") or "Bahasa Indonesia"))
-    return chat_json(base, model, SYSTEM, user, S_STORY)
+    return chat_json(base, model, SYSTEM, user, S_STORY, est=380, task="storyline")
 
 
 def script(base, model, d):
@@ -169,7 +192,7 @@ def script(base, model, d):
             "(no character names alone - describe how they look). "
             "Write location, time, action, dialog and onscreen_text in %s."
             % (total, d.get("storyline", ""), n, max_scene, total, d.get("lang") or "Bahasa Indonesia"))
-    res = chat_json(base, model, SYSTEM, user, S_SCRIPT)
+    res = chat_json(base, model, SYSTEM, user, S_SCRIPT, est=110 * n + 30, task="script")
     res["scenes"] = fit_durations(res.get("scenes") or [], total, max_scene)
     got = sum(x["duration"] for x in res["scenes"])
     if got != total:
@@ -234,4 +257,4 @@ def breakdown(base, model, d):
             "Write ALL descriptions in English (they become AI video prompts); keep character and location names "
             "exactly as in the script."
             % (d.get("storyline", ""), "\n".join(lines), d.get("style", ""), len(scenes)))
-    return chat_json(base, model, SYSTEM, user, S_BREAKDOWN)
+    return chat_json(base, model, SYSTEM, user, S_BREAKDOWN, est=300 + 75 * len(scenes), task="breakdown")

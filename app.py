@@ -8,6 +8,7 @@ import llm
 import render
 import updater
 import remote
+import comfy_ws
 import json, os, queue, random, re, shutil, subprocess, sys, threading, time, uuid
 import urllib.error, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -297,9 +298,12 @@ def model_dir(base, folder):
 
 
 def download_models(base, models):
-    DL.update(active=True, error="", finished=[])
+    DL.update(active=True, error="", finished=[], index=0, count=len(models), overall=0)
+    total_gb = sum(float(m.get("gb") or 0) for m in models) or 0
+    done_gb = 0.0
     try:
-        for m in models:
+        for i, m in enumerate(models, 1):
+            DL["index"] = i
             d = model_dir(base, m["folder"])
             os.makedirs(d, exist_ok=True)
             dst = os.path.join(d, m["file"])
@@ -322,7 +326,10 @@ def download_models(base, models):
                             break
                         f.write(chunk)
                         DL["done"] += len(chunk)
+                        if total_gb:
+                            DL["overall"] = min(99, int(100 * (done_gb + DL["done"] / 1e9) / total_gb))
             os.replace(part, dst)
+            done_gb += float(m.get("gb") or 0)
             DL["finished"].append(m["file"])
     except Exception as e:
         DL["error"] = "Unduh %s gagal: %s (klik Unduh lagi untuk melanjutkan)" % (DL["file"], e)
@@ -348,6 +355,9 @@ def find_videos(outputs):
 
 
 def run_job(job):
+    prog = None
+    job["started"] = time.time()
+    job["progress"] = {"pct": 0, "stage": "Menyiapkan"}
     try:
         base = comfy_url()
         if not base:
@@ -359,6 +369,11 @@ def run_job(job):
                 raise RuntimeError("Model belum ada di ComfyUI: %s -> Klik 'Unduh model yang kurang' di kotak model (kolom kiri tahap ini), lalu ulangi." % ", ".join(missing))
         graph = custom_graph(p["workflow"], p) if p.get("workflow") else build_graph(p, node_spec(base))
         job["status"] = "queued"
+        job["progress"] = {"pct": 0, "stage": "Mengirim ke ComfyUI"}
+        try:  # progres per node/step lewat websocket ComfyUI (opsional)
+            prog = comfy_ws.Progress(base, job["id"], graph, job)
+        except Exception:
+            prog = None
         try:
             body = {"prompt": graph, "client_id": job["id"]}
             if api_key():  # node API berbayar butuh API key akun Comfy bila dipanggil tanpa UI ComfyUI
@@ -378,6 +393,8 @@ def run_job(job):
                 msg += " -> Node/model belum terpasang. Update ComfyUI dan unduh file model ke folder models (lihat catatan workflow)."
             raise RuntimeError("ComfyUI menolak workflow: " + msg[:800])
         pid = res["prompt_id"]
+        if prog:
+            prog.pid = pid
         job["status"] = "running"
         timeout = wf_meta(p["workflow"]).get("timeout") if p.get("workflow") else None
         deadline = time.time() + max(CFG["job_timeout_seconds"], int(timeout or 0))
@@ -385,6 +402,15 @@ def run_job(job):
             time.sleep(CFG["poll_seconds"])
             h = http_json(base + "/history/" + pid, timeout=15).get(pid)
             if not h:
+                if job["progress"].get("pct", 0) <= 1:  # belum ada event: masih antre di ComfyUI (mis. dipakai aplikasi lain)?
+                    try:
+                        q = http_json(base + "/queue", timeout=5)
+                        if any(len(x) > 1 and x[1] == pid for x in q.get("queue_pending", [])):
+                            job["progress"] = {"pct": 0, "stage": "Menunggu antrean ComfyUI"}
+                        elif job["progress"].get("stage") in ("Mengirim ke ComfyUI", "Menunggu antrean ComfyUI"):
+                            job["progress"] = {"pct": 1, "stage": "Memproses"}
+                    except Exception:
+                        pass
                 continue
             st = h.get("status", {})
             if st.get("status_str") == "error":
@@ -401,9 +427,11 @@ def run_job(job):
                 name = "%s_%s%s" % (time.strftime("%Y%m%d-%H%M%S"), job["id"][:6],
                                     os.path.splitext(v["filename"])[1])
                 os.makedirs(OUT, exist_ok=True)
+                job["progress"] = {"pct": 99, "stage": "Mengambil hasil"}
                 with urllib.request.urlopen(url, timeout=120) as r, open(os.path.join(OUT, name), "wb") as f:
                     shutil.copyfileobj(r, f)
                 job["file"] = name
+                job["progress"] = {"pct": 100, "stage": "Selesai"}
                 job["status"] = "done"
                 save_meta(job)
                 return
@@ -422,6 +450,9 @@ def run_job(job):
             msg += " -> Kredit akun Comfy habis/kurang."
         job["status"] = "error"
         job["error"] = msg
+    finally:
+        if prog:
+            prog.close()
 
 
 def worker():
@@ -545,9 +576,12 @@ def start_render(d):
 
     def go():
         BUSY["render"] += 1
+        job["started"] = time.time()
+        job["progress"] = {"pct": 0, "stage": "Menyiapkan klip"}
         try:
             os.makedirs(OUT, exist_ok=True)
-            render.render(spec)
+            render.render(spec, progress=lambda pct: job.update(progress={"pct": pct, "stage": "Merender"}))
+            job["progress"] = {"pct": 100, "stage": "Selesai"}
             job.update(file=name, status="done")
             save_meta(job)
         except Exception as e:
@@ -706,9 +740,18 @@ class H(BaseHTTPRequestHandler):
             st.update(model=llm.pick_model(llm_base(), CFG.get("llm_model", "")) if st["ok"] else "",
                       recommended=llm.RECOMMENDED, alternatives=llm.ALTERNATIVES, pull=llm.PULL, url=llm_base())
             self.send_json(st)
+        elif u.path == "/api/llm/progress":
+            self.send_json(llm.PROG)
         elif u.path == "/api/jobs":
             with LOCK:
                 jobs = sorted(JOBS.values(), key=lambda j: j["created"], reverse=True)
+            waiting = [j for j in reversed(jobs) if j["status"] == "queued" and not j.get("started")]
+            for n, j in enumerate(waiting, 1):
+                j["progress"] = {"pct": 0, "stage": "Antre ke-%d" % n}
+            now = time.time()
+            for j in jobs:
+                if j.get("started") and j["status"] in ("queued", "running"):
+                    j["elapsed"] = int(now - j["started"])
             self.send_json(jobs)
         elif u.path.startswith("/outputs/"):
             self.serve_file(os.path.basename(u.path))

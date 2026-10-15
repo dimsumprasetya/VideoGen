@@ -2,9 +2,12 @@
 <html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Seedance Studio</title>
 <style>
-:root{--bg:#0e0f12;--panel:#16181d;--line:#262932;--tx:#e8eaf0;--mut:#8b90a0;--ac:#ff8a3d;--ok:#4ade80;--bad:#f87171;--warn:#fbbf24}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:14px system-ui,sans-serif;height:100vh;display:flex;flex-direction:column}
-nav{flex:0 0 44px;display:flex;gap:2px;align-items:center;padding:0 10px;border-bottom:1px solid var(--line);background:var(--panel);overflow-x:auto}
+:root{color-scheme:dark;--bg:#0e0f12;--panel:#16181d;--line:#262932;--tx:#e8eaf0;--mut:#8b90a0;--ac:#ff8a3d;--ok:#4ade80;--bad:#f87171;--warn:#fbbf24}
+*{box-sizing:border-box;scrollbar-width:thin;scrollbar-color:#3a3f4b transparent}
+::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-track,::-webkit-scrollbar-corner{background:transparent}
+::-webkit-scrollbar-thumb{background:#3a3f4b;border-radius:8px;border:2px solid transparent;background-clip:padding-box}::-webkit-scrollbar-thumb:hover{background-color:#4f5563}
+::-webkit-scrollbar-button{display:none;width:0;height:0}body{margin:0;background:var(--bg);color:var(--tx);font:14px system-ui,sans-serif;height:100vh;display:flex;flex-direction:column}
+nav{flex:0 0 44px;display:flex;gap:2px;align-items:center;padding:0 10px;border-bottom:1px solid var(--line);background:var(--panel);overflow:hidden;min-width:0}
 nav b{margin-right:10px;white-space:nowrap}nav a{padding:6px 10px;border-radius:8px;color:var(--mut);cursor:pointer;white-space:nowrap}nav a.on{background:#262932;color:var(--tx)}
 nav .n{display:inline-block;width:18px;height:18px;border-radius:9px;background:#262932;font-size:11px;text-align:center;line-height:18px;margin-right:6px}
 nav a.ok .n{background:#173323;color:var(--ok)}nav .ar{color:#3a3f4b;margin:0 1px}nav .sp{flex:1}
@@ -47,7 +50,7 @@ h3{font-size:13px;margin:0 0 6px}
 #set{position:fixed;top:44px;right:0;bottom:0;width:380px;background:var(--panel);border-left:1px solid var(--line);padding:16px;overflow:auto;display:none;z-index:5}
 .final video{max-height:60vh;max-width:100%;border-radius:10px;background:#000}
 .pb{height:5px;background:#262932;border-radius:3px;overflow:hidden;margin-top:4px;width:100%}.pb i{display:block;height:100%;background:var(--ac);transition:width .5s}
-#act{white-space:nowrap;margin-right:8px;font-size:12px;padding:3px 10px;border-radius:99px;background:#2a1d12;color:var(--ac)}#act:empty{display:none}
+#act{white-space:nowrap;flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;margin-right:8px;font-size:12px;padding:3px 10px;border-radius:99px;background:#2a1d12;color:var(--ac)}#act:empty{display:none}
 .stgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(50px,1fr));gap:5px}
 .stc{border:2px solid var(--line);border-radius:7px;overflow:hidden;cursor:pointer;background:var(--panel);position:relative}
 .stc.on{border-color:var(--ac);box-shadow:0 0 0 2px #ff8a3d55}.stc:hover{border-color:#4a4f5c}.stc.on:hover{border-color:var(--ac)}
@@ -59,7 +62,11 @@ background:linear-gradient(transparent,#000d 45%);text-shadow:0 1px 2px #000;ove
 .stc .pvd{position:absolute;top:2px;left:2px;font-size:8px;background:#000b;color:#fff;border-radius:4px;padding:0 3px}
 .stc .ov{position:absolute;inset:0;background:#000a;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center}
 .stc.cus .th{display:flex;align-items:center;justify-content:center;font-size:20px;color:var(--mut);padding-bottom:12px}
-.stinfo{font-size:12px;margin-top:6px;line-height:1.4}.stinfo:empty{display:none}.stinfo a{color:var(--mut)}
+.stinfo{font-size:12px;margin-top:8px;line-height:1.4}.stinfo:empty{display:none}.stinfo a{color:var(--mut)}
+nav a,nav select,nav button{flex-shrink:0}
+@media (max-width:1300px) and (min-width:821px){nav .xs,nav .ar{display:none}nav a{padding:6px 8px}}
+@media (max-width:1120px) and (min-width:821px){#saved,nav b{display:none}}
+.sect{border-top:1px solid var(--line);margin-top:16px;padding-top:14px}.side>h3:first-child{margin-top:0}
 .url{font-size:14px;font-weight:700;color:var(--tx);background:#16181d;border:1px solid var(--line);border-radius:6px;padding:6px 8px;margin-top:4px;user-select:all;word-break:break-all}
 /* HP / layar sempit: satu kolom, halaman bergulir utuh */
 @media (max-width:820px){
@@ -115,7 +122,10 @@ button.sm,.btns button,nav button,.next button,.take .x{min-height:36px}button.s
 
 <!-- 3. BREAKDOWN -->
 <div id="p-bd" class="pg"><div class="side">
-<h3>Mood &amp; style</h3><div class="hint">Dipakai di semua prompt video &amp; gambar. English.</div>
+<h3>1 · Breakdown dari script</h3><div class="hint">AI mengisi gaya, karakter, lokasi, properti, dan isi tiap scene.</div>
+<button class="sec" id="b-go">Breakdown ulang dari script</button><div class="hint" id="b-msg" style="margin-top:6px"></div>
+<div class="box llmbox"></div>
+<div class="sect"><h3>2 · Mood &amp; style</h3><div class="hint">Dipakai di semua prompt video &amp; gambar. English.</div>
 <label>Gaya visual</label><textarea id="l-style" style="height:70px" placeholder="Cute 3D animation, soft plush and clay texture"></textarea>
 <div class="hint" style="margin:8px 0 5px">Referensi gaya: klik kotak untuk memakai.</div>
 <div class="stgrid" id="g-styles"></div><div class="stinfo" id="st-info"></div>
@@ -123,10 +133,10 @@ button.sm,.btns button,nav button,.next button,.take .x{min-height:36px}button.s
 <label>Kamera</label><textarea id="l-camera" style="height:54px" placeholder="vertical 9:16, gentle handheld, shallow depth of field"></textarea>
 <label>Lighting</label><textarea id="l-lighting" style="height:54px" placeholder="warm soft morning light"></textarea>
 <label>Palet warna</label><input id="l-palette" placeholder="pastel orange, cream, sky blue">
-<label>Workflow gambar referensi</label><select id="b-imgwf"></select>
-<div class="box" id="b-models" style="display:none;margin-top:6px"></div>
-<button class="sec" id="b-go">Breakdown ulang dari script</button><div class="hint" id="b-msg" style="margin-top:6px"></div>
-<div class="box llmbox"></div>
+</div>
+<div class="sect"><h3>3 · Gambar referensi &amp; sketsa</h3><div class="hint">Dipakai tombol "Gambar semua" / "Sketsa semua" di kanan.</div>
+<label>Workflow gambar</label><select id="b-imgwf"></select>
+<div class="box" id="b-models" style="display:none;margin-top:6px"></div></div>
 </div><div class="body"><div class="inner">
 <h2>Karakter <button class="sm sec" data-add="chars">+ Tambah</button><button class="sm sec" data-genall="chars">Gambar semua</button></h2><div class="grid" id="g-chars"></div>
 <h2>Set / Lokasi <button class="sm sec" data-add="locs">+ Tambah</button><button class="sm sec" data-genall="locs">Gambar semua</button></h2><div class="grid" id="g-locs"></div>

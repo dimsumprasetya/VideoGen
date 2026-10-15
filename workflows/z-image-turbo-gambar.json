@@ -3,7 +3,12 @@
     "label": "Z-Image Turbo lokal - GRATIS (gambar: karakter/lokasi/storyboard)",
     "note": "Gambar, bukan video. Jalan di GPU sendiri (cukup VRAM 8 GB), tanpa kredit. Butuh model z_image_turbo, qwen_3_4b_fp8_mixed, ae.safetensors (~11 GB). Durasi diabaikan.",
     "max_short": 1088,
-    "timeout": 1800
+    "timeout": 1800,
+    "models": [
+      {"folder": "diffusion_models", "file": "z_image_turbo_int8_convrot.safetensors", "gb": 5.8, "url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/diffusion_models/z_image_turbo_int8_convrot.safetensors"},
+      {"folder": "text_encoders", "file": "qwen_3_4b_fp8_mixed.safetensors", "gb": 5.3, "url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b_fp8_mixed.safetensors"},
+      {"folder": "vae", "file": "ae.safetensors", "gb": 0.3, "url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors"}
+    ]
   },
   "1": {"class_type": "UNETLoader", "inputs": {"unet_name": "z_image_turbo_int8_convrot.safetensors", "weight_dtype": "default"}},
   "2": {"class_type": "CLIPLoader", "inputs": {"clip_name": "qwen_3_4b_fp8_mixed.safetensors", "type": "lumina2", "device": "default"}},

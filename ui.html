@@ -102,6 +102,7 @@ nav a{padding:5px 6px;font-size:13px}nav .n{width:16px;height:16px;line-height:1
 <label>Lighting</label><textarea id="l-lighting" style="height:54px" placeholder="warm soft morning light"></textarea>
 <label>Palet warna</label><input id="l-palette" placeholder="pastel orange, cream, sky blue">
 <label>Workflow gambar referensi</label><select id="b-imgwf"></select>
+<div class="box" id="b-models" style="display:none;margin-top:6px"></div>
 <button class="sec" id="b-go">Breakdown ulang dari script</button><div class="hint" id="b-msg" style="margin-top:6px"></div>
 <div class="box llmbox"></div>
 </div><div class="body">
@@ -136,6 +137,7 @@ nav a{padding:5px 6px;font-size:13px}nav .n{width:16px;height:16px;line-height:1
 <label class="row" style="color:var(--tx)">Volume musik <input type="range" id="e-mv" min="0" max="1" step="0.05"></label>
 <div class="btns" style="margin-top:6px"><button class="sec" id="e-up">Upload musik…</button><input type="file" id="e-file" accept="audio/*" style="display:none"></div>
 <div class="box"><b>Generate musik (lokal, gratis)</b><div class="row" style="margin-top:6px"><select id="e-mwf"></select></div>
+<div id="e-models" style="display:none;margin-top:6px"></div>
 <textarea id="e-mp" style="height:60px;margin-top:6px" placeholder="cheerful kids ukulele, light percussion, 100 bpm"></textarea>
 <button class="sec" id="e-mgo" style="margin-top:6px">Generate musik sepanjang video</button><div class="hint" id="e-mmsg"></div></div>
 <div class="hint" style="margin-top:10px">SFX &amp; VO: menyusul. Untuk sekarang VO bisa direkam lalu di-upload sebagai musik/audio.</div>
@@ -201,7 +203,7 @@ $("pjdel").onclick=async()=>{if(!confirm("Hapus proyek "+PN+"? (video di folder 
 /* ---------------- tab & status */
 const TABS=["idea","scr","bd","prod","edit"];
 function tab(t){if(!TABS.includes(t))t="idea";TAB=t;store("tab",t);for(const k of TABS)$("p-"+k).style.display=k==t?"grid":"none";
-document.querySelectorAll("nav [data-tab]").forEach(a=>a.classList.toggle("on",a.dataset.tab==t));renderTab(t);if(["idea","scr","bd"].includes(t))llmStatus();if(t=="prod")prodSide()}
+document.querySelectorAll("nav [data-tab]").forEach(a=>a.classList.toggle("on",a.dataset.tab==t));renderTab(t);if(["idea","scr","bd"].includes(t))llmStatus();if(t=="prod")prodSide();if(t=="bd"||t=="edit")tabModels(t)}
 document.querySelectorAll("nav [data-tab]").forEach(a=>a.onclick=()=>tab(a.dataset.tab));
 function renderTab(t){({idea:devRender,scr:scrRender,bd:bdRender,prod:prodRender,edit:editRender})[t]()}
 function renderAll(){devLoad();lookLoad();prodLoad();editLoad();renderTab(TAB);navDone();if(TAB=="prod")prodSide()}
@@ -224,6 +226,7 @@ const jobState=o=>{if(!o||!o.job)return "";const j=JM[o.job];return o.error?`<sp
 /* ---------------- status aplikasi, banner, pengaturan */
 async function status(){const s=await api("/api/status");if(s.error)return;ST=s;if(VER0===null)VER0=s.version;
 const b=[];if(!s.comfy)b.push(`<div class="w">ComfyUI belum tersambung (dibutuhkan untuk gambar &amp; video). <button class="sec" onclick="openSet()">Pengaturan</button></div>`);
+if(DLON){tabModels();if($("set").style.display=="block")setModels()}
 if(VER0!==s.version&&s.version)b.push(`<div class="i">Aplikasi sudah diperbarui ke versi ${esc(s.version)}. <button onclick="location.reload()">Muat ulang</button></div>`);
 $("banner").innerHTML=b.join("");$("c-st").innerHTML=s.comfy?`<span class="okc">tersambung</span>`:`<span class="err">belum tersambung</span>`;$("c-log").textContent=s.log||"";
 $("k-st").textContent=s.has_key?"(tersimpan)":"(belum diisi)";$("u-st").innerHTML=`Versi ${esc(s.version||"?")} · branch ${esc(s.branch||"")} · auto-update ${s.auto_update?"aktif":"mati"}`;
@@ -259,13 +262,20 @@ fillSel($("v-engine"),[["","Seedance cloud (bayar kredit Comfy)"],...wfs("video"
 fillSel($("v-model"),cfg.models.map(m=>[m.id,m.label]),P.prod.model);fillSel($("v-aspect"),cfg.aspects.map(a=>[a,a]),P.prod.aspect);fillSel($("v-res"),cfg.resolutions.map(a=>[a,a]),P.prod.resolution);
 renderTab(TAB);if(TAB=="prod")prodSide()}
 function fillSel(el,opts,val){el.innerHTML=opts.map(([v,l])=>`<option value="${esc(v)}">${esc(l)}</option>`).join("");if(opts.some(o=>o[0]==val))el.value=val}
-async function modelBox(wf,el){if(!wf){el.innerHTML="";return false}const r=await api("/api/models?workflow="+encodeURIComponent(wf)),d=r.dl||{};
-if(!r.models){el.innerHTML=`<div class="hint">Status model belum bisa dicek (ComfyUI mati?).</div>`;return false}
+let DLON=false;
+async function modelBox(wf,el){if(!wf){el.innerHTML="";return null}const r=await api("/api/models?workflow="+encodeURIComponent(wf)),d=r.dl||{};DLON=!!d.active;
+if(!r.models){el.innerHTML=`<div class="hint">Status model belum bisa dicek (ComfyUI mati?).</div>`;return null}
 const miss=r.models.filter(m=>!m.present),gb=miss.reduce((a,m)=>a+(m.gb||0),0);
 el.innerHTML=r.models.map(m=>`<div class="${m.present?"okc":"err"}" style="word-break:break-all">${m.present?"✓":"✗"} ${esc(m.folder)}/${esc(m.file)}${m.gb?" ("+m.gb+" GB)":""}</div>`).join("")+
 (miss.length&&!d.active?`<button class="sec" style="margin-top:6px" onclick="dlModels('${esc(wf)}')">Unduh model yang kurang (~${gb.toFixed(1)} GB)</button>`:"")+
-(d.active?`<div class="hint">Mengunduh ${esc(d.file)}: ${(d.done/1e9).toFixed(2)} / ${(d.total/1e9).toFixed(2)} GB</div>`:d.error?`<div class="err">${esc(d.error)}</div>`:"");return !miss.length}
-async function dlModels(wf){const r=await api("/api/models/download",{workflow:wf});if(r.error)alert(r.error);setModels();prodModels()}
+(d.active?`<div class="hint">Mengunduh ${esc(d.file)}: ${(d.done/1e9).toFixed(2)} / ${(d.total/1e9).toFixed(2)} GB${d.total?" ("+Math.round(100*d.done/d.total)+"%)":""}</div>`:d.error?`<div class="err">${esc(d.error)}</div>`:"")+
+(!miss.length?"":`<div class="hint" style="margin-top:4px">Model ini dibutuhkan sebelum generate. Unduhan berjalan di latar belakang; boleh lanjut kerja di tahap lain.</div>`);return !miss.length}
+async function dlModels(wf){const r=await api("/api/models/download",{workflow:wf});if(r.error)alert(r.error);setModels();tabModels()}
+/* kotak model di tahap yang memakai workflow lokal: 3 gambar, 4 video, 5 musik */
+const MBOX={bd:["b-imgwf","b-models"],prod:["v-engine","v-models"],edit:["e-mwf","e-models"]};
+async function tabModels(t){const m=MBOX[t||TAB];if(!m)return null;const wf=$(m[0]).value,el=$(m[1]);if(!wf){el.style.display="none";return null}el.style.display="block";return modelBox(wf,el)}
+async function needModels(t){const ok=await tabModels(t);if(ok!==false)return true;$(MBOX[t][1]).scrollIntoView({block:"center",behavior:"smooth"});
+alert("Model untuk langkah ini belum lengkap.\nKlik 'Unduh model yang kurang' di kotak model (sebelah kiri), tunggu sampai semua ✓, lalu ulangi.");return false}
 function setModels(){modelBox($("m-wf").value,$("m-list"))}$("m-wf").onchange=setModels;
 
 /* ---------------- Ollama */
@@ -335,7 +345,7 @@ $("next2").onclick=async()=>{if(!P.scenes.length)return alert("Belum ada scene."
 const LOOKF=["style","camera","lighting","palette"];
 function lookLoad(){LOOKF.forEach(f=>$("l-"+f).value=P.look[f]||"")}
 LOOKF.forEach(f=>$("l-"+f).oninput=()=>{P.look[f]=$("l-"+f).value;save()});
-$("b-imgwf").onchange=()=>{P.imgwf=$("b-imgwf").value;save()};
+$("b-imgwf").onchange=()=>{P.imgwf=$("b-imgwf").value;save();tabModels("bd")};$("e-mwf").addEventListener("change",()=>tabModels("edit"));
 const byName=(arr,n)=>arr.find(x=>x.name.trim().toLowerCase()==String(n||"").trim().toLowerCase());
 async function makeBreakdown(btn){const r=await llmRun(btn,"b-msg",{task:"breakdown",storyline:P.story,scenes:P.scenes,style:P.look.style});if(!r)return false;
 const L=r.look||{};LOOKF.forEach(f=>{if(L[f])P.look[f]=L[f]});
@@ -352,11 +362,11 @@ locs:it=>`Establishing shot of ${it.name||"the location"}: ${it.desc}. ${P.look.
 scenes:sc=>`Hand-drawn storyboard sketch, rough black-and-white pencil lines (not a polished image). ${sc.shot} shot, camera ${sc.cam}. ${sc.visual||sc.action}. ${scChars(sc).map(c=>c.name+": "+c.look).join("; ")}. Composition, character position and camera-move arrows.`};
 const scChars=sc=>P.chars.filter(c=>(sc.chars||[]).includes(c.id)),scLoc=sc=>P.locs.find(l=>l.id==sc.loc),scProps=sc=>P.props.filter(p=>(sc.props||[]).includes(p.id));
 async function genImg(kind,i){const it=kind=="scenes"?P.scenes[i]:P[kind][i],tgt=kind=="scenes"?it.sketch:it;const wf=$("b-imgwf").value;
-if(!wf)return alert("Belum ada workflow gambar (folder workflows).");
+if(!wf){alert("Belum ada workflow gambar (folder workflows).");return false}if(!(await needModels("bd")))return false;
 const r=await api("/api/generate",{prompt:TPL[kind](it),workflow:wf,aspect:kind=="chars"?"1:1":P.prod.aspect,resolution:"720p",duration:5,seed:-1,ref:PN+"/"+kind});
-if(r.error)return alert(r.error);Object.assign(tgt,{job:r.id,img:"",error:""});save();await poll();bdRender()}
+if(r.error){alert(r.error);return false}Object.assign(tgt,{job:r.id,img:"",error:""});save();await poll();bdRender();return true}
 document.querySelectorAll("[data-genall]").forEach(b=>b.onclick=async()=>{const k=b.dataset.genall,arr=k=="scenes"?P.scenes:P[k];
-for(let i=0;i<arr.length;i++){const t=k=="scenes"?arr[i].sketch:arr[i];if(!t.img&&!(t.job&&!t.error))await genImg(k,i)}});
+for(let i=0;i<arr.length;i++){const t=k=="scenes"?arr[i].sketch:arr[i];if(!t.img&&!(t.job&&!t.error)&&!(await genImg(k,i)))break}});
 document.querySelectorAll("[data-add]").forEach(b=>b.onclick=()=>{const k=b.dataset.add;P[k].push(k=="chars"?{id:uid(),name:"",look:"",wardrobe:"",makeup:"",job:"",img:""}:k=="locs"?{id:uid(),name:"",desc:"",job:"",img:""}:{id:uid(),name:"",desc:""});save();bdRender()});
 function bdDel(k,i){if(!confirm("Hapus?"))return;const id=P[k][i].id;P[k].splice(i,1);P.scenes.forEach(s=>{if(s.loc==id)s.loc="";s.chars=s.chars.filter(x=>x!=id);s.props=s.props.filter(x=>x!=id)});save();bdRender()}
 const imgBox=t=>t.img?`<div class="img" onclick="lbox('${esc(t.img)}')"><img src="/outputs/${esc(t.img)}"></div>`:`<div class="img">${jobState(t)||"Belum ada gambar"}</div>`;
@@ -392,7 +402,7 @@ if([...$(id).options].some(o=>o.value==v))$(id).value=v;if(!P.imgwf)P.imgwf=$("b
 const engMeta=()=>cfg.workflows.find(w=>w.file==P.prod.engine);
 function prodSide(){const sd=!P.prod.engine,m=cfg.models.find(x=>x.id==$("v-model").value)||{};$("v-sd").style.display=sd?"":"none";$("v-audw").style.display=sd&&m.audio?"flex":"none";
 $("v-audio").checked=!!P.prod.audio;$("v-note").textContent=sd?"Jalan di cloud, butuh API key + kredit Comfy (Pengaturan ⚙).":(engMeta()?.note||"");prodModels()}
-async function prodModels(){const el=$("v-models");if(!P.prod.engine){el.style.display="none";return}el.style.display="block";await modelBox(P.prod.engine,el)}
+async function prodModels(){return tabModels("prod")}
 $("v-engine").onchange=()=>{P.prod.engine=$("v-engine").value;save();prodSide()};$("v-model").onchange=()=>{P.prod.model=$("v-model").value;save();prodSide()};
 $("v-audio").onchange=()=>{P.prod.audio=$("v-audio").checked;save()};$("v-aspect").onchange=()=>{P.prod.aspect=$("v-aspect").value;save()};$("v-res").onchange=()=>{P.prod.resolution=$("v-res").value;save()};
 function prodRender(){
@@ -405,11 +415,11 @@ ${t.file?`<video src="/outputs/${esc(t.file)}#t=0.5" muted preload="metadata" on
 ||`<div class="hint">Belum ada scene (tahap 2).</div>`;const left=P.scenes.filter(s=>!s.take).length;$("n4").textContent=left?`${left} scene belum punya take terpilih.`:""}
 function delTake(i,k){const s=P.scenes[i],t=s.takes[k];if(!confirm("Hapus take ini dari scene?"))return;s.takes.splice(k,1);if(s.take==t.file)s.take=s.takes.find(x=>x.file)?.file||"";save();prodRender()}
 function takeBody(s){const pd=P.prod;return {prompt:promptOf(s),workflow:pd.engine,model:pd.model||$("v-model").value,aspect:pd.aspect||$("v-aspect").value,resolution:pd.resolution||$("v-res").value,duration:s.duration,seed:-1,audio:pd.audio,ref:PN+"/scene"}}
-async function genTake(i,quiet){const s=P.scenes[i];const r=await api("/api/generate",takeBody(s));if(r.error){if(!quiet)alert(r.error);return false}
+async function genTake(i,quiet){const s=P.scenes[i];if(!quiet&&P.prod.engine&&!(await needModels("prod")))return false;const r=await api("/api/generate",takeBody(s));if(r.error){if(!quiet)alert(r.error);return false}
 s.takes.push({job:r.id,file:"",error:""});save();if(!quiet){await poll();prodRender()}return true}
 $("v-all").onclick=async()=>{const todo=P.scenes.map((s,i)=>i).filter(i=>!P.scenes[i].takes.some(t=>t.file||(t.job&&!t.error)));
 if(!todo.length)return alert("Semua scene sudah punya take. Klik 'Generate take' di scene tertentu untuk take tambahan.");
-if(!P.prod.engine&&!confirm(`Seedance memakai kredit Comfy untuk ${todo.length} scene. Lanjut?`))return;
+if(!P.prod.engine&&!confirm(`Seedance memakai kredit Comfy untuk ${todo.length} scene. Lanjut?`))return;if(P.prod.engine&&!(await needModels("prod")))return;
 for(const i of todo)if(!(await genTake(i,true))){alert("Gagal mengantre scene "+(i+1));break}await poll();prodRender()};
 $("next4").onclick=()=>{const left=P.scenes.filter(s=>!s.take).length;if(left&&!confirm(left+" scene belum punya take terpilih dan akan dilewati. Lanjut?"))return;tab("edit")};
 
@@ -436,7 +446,7 @@ $("e-up").onclick=()=>$("e-file").click();
 $("e-file").onchange=async()=>{const f=$("e-file").files[0];if(!f)return;$("e-up").textContent="Mengunggah…";
 const r=await fetch("/api/upload?name="+encodeURIComponent(f.name),{method:"POST",headers:{"X-Studio":"1"},body:f}).then(x=>x.json()).catch(e=>({error:e.message}));
 $("e-up").textContent="Upload musik…";$("e-file").value="";if(r.error)return alert(r.error);P.edit.music=r.file;P.edit.audios.push(r.file);save();editRender()};
-$("e-mgo").onclick=async()=>{const wf=$("e-mwf").value;if(!wf)return alert("Belum ada workflow musik di folder workflows.");P.edit.mwf=wf;
+$("e-mgo").onclick=async()=>{const wf=$("e-mwf").value;if(!wf)return alert("Belum ada workflow musik di folder workflows.");P.edit.mwf=wf;if(!(await needModels("edit")))return;
 const total=Math.max(5,Math.ceil(editClips().reduce((a,s)=>a+(s.tout||s.duration)-(s.tin||0),0))||P.target);
 const r=await api("/api/generate",{prompt:$("e-mp").value||"cheerful background music, instrumental",workflow:wf,duration:total,seed:-1,ref:PN+"/music"});
 if(r.error)return alert(r.error);P.edit.mjob=r.id;P.edit.music="";$("e-mmsg").textContent="Diantrekan. Bisa beberapa menit.";save();editRender()};

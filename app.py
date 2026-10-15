@@ -356,7 +356,7 @@ def run_job(job):
         if p.get("workflow"):
             missing = [m["file"] for m in (model_status(base, wf_meta(p["workflow"])) or []) if not m["present"]]
             if missing:
-                raise RuntimeError("Model belum ada di ComfyUI: %s -> Klik 'Unduh model yang kurang'." % ", ".join(missing))
+                raise RuntimeError("Model belum ada di ComfyUI: %s -> Klik 'Unduh model yang kurang' di kotak model (kolom kiri tahap ini), lalu ulangi." % ", ".join(missing))
         graph = custom_graph(p["workflow"], p) if p.get("workflow") else build_graph(p, node_spec(base))
         job["status"] = "queued"
         try:

@@ -947,9 +947,11 @@ if(!LLM.ok)h=`<b style="color:#f87171">Ollama belum menyala</b><br>Penulis ide/s
 else if(!LLM.models.length)h=`<b>Ollama aktif, belum ada model.</b><br><button class="sec" onclick="llmPull()">Unduh ${LLM.recommended} (~5 GB)</button>`;
 else h=`<b style="color:#4ade80">Ollama aktif</b> · model <select onchange="llmModel(this.value)">${LLM.models.map(m=>`<option ${m==LLM.model?"selected":""}>${esc(m)}</option>`).join("")}</select>`+
 (LLM.models.some(m=>m.startsWith("qwen3"))?"":`<br><button class="sec" onclick="llmPull()">Unduh ${LLM.recommended} (disarankan)</button>`);
-if(pl.active)h+=`<br>Mengunduh ${esc(pl.model)}: ${esc(pl.status)} ${pl.total?Math.round(100*pl.done/pl.total)+"%":""}`;else if(pl.error)h+=`<br><span style="color:#f87171">${esc(pl.error)}</span>`;
+if(pl.active)h=h.replace(/<button[^>]*onclick="llmPull\(\)"[^>]*>.*?<\/button>/,"")+`<br>Mengunduh ${esc(pl.model)}: ${esc(pl.status)} ${pl.total?Math.round(100*pl.done/pl.total)+"% ("+(pl.done/1e9).toFixed(2)+" / "+(pl.total/1e9).toFixed(2)+" GB)":""}`;
+else if(pl.model&&!pl.error&&LLM.models.includes(pl.model))h+=`<br><span style="color:#4ade80">${esc(pl.model)} selesai diunduh.</span>`;else if(pl.error)h+=`<br><span style="color:#f87171">${esc(pl.error)}</span>`;
 $("llmbox1").innerHTML=$("llmbox2").innerHTML=h;if(pl.active)setTimeout(llmStatus,2000)}
-async function llmPull(){const r=await api("/api/llm/pull",{model:LLM.recommended});if(r.error)alert(r.error);llmStatus()}
+async function llmPull(){document.querySelectorAll(".llm button").forEach(x=>{x.disabled=true;x.textContent="Memulai unduhan…"});
+try{const r=await api("/api/llm/pull",{model:LLM.recommended});if(r.error)alert(r.error)}catch(e){alert("Gagal menghubungi aplikasi: "+e.message)}llmStatus()}
 async function llmModel(m){await api("/api/llm/model",{model:m});llmStatus()}
 async function llmRun(btn,msg,body){const old=btn.textContent;btn.disabled=true;btn.textContent="Menulis… (bisa 1-3 menit)";$(msg).textContent="";
 try{const r=await api("/api/llm/run",body);if(r.error)throw new Error(r.error);$(msg).textContent="Ditulis oleh "+r._model+(r._warn?" · ⚠ "+r._warn:"");return r}

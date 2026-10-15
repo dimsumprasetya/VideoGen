@@ -3,6 +3,7 @@ Ollama: https://ollama.com  (API http://127.0.0.1:11434)."""
 import json, re, threading, urllib.error, urllib.request
 
 RECOMMENDED = "qwen3:8b"   # ~5 GB, muat di VRAM 8 GB, bagus untuk bahasa Indonesia
+_DIRECT = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # Ollama lokal: jangan lewat proxy sistem
 PULL = {"active": False, "model": "", "status": "", "done": 0, "total": 0, "error": ""}
 
 
@@ -11,7 +12,7 @@ def _req(url, data=None, timeout=10):
     if data is not None:
         req.data = json.dumps(data).encode()
         req.add_header("Content-Type", "application/json")
-    return urllib.request.urlopen(req, timeout=timeout)
+    return _DIRECT.open(req, timeout=timeout)
 
 
 def status(base):
@@ -36,9 +37,8 @@ def pick_model(base, wanted=""):
 
 
 def _pull(base, model):
-    PULL.update(active=True, model=model, status="mulai", done=0, total=0, error="")
-    try:
-        with _req(base + "/api/pull", {"model": model, "stream": True}, timeout=60) as r:
+    try:  # "name" untuk Ollama versi lama, "model" untuk versi baru
+        with _req(base + "/api/pull", {"model": model, "name": model, "stream": True}, timeout=120) as r:
             for line in r:
                 if not line.strip():
                     continue
@@ -48,14 +48,17 @@ def _pull(base, model):
                 PULL.update(status=ev.get("status", ""), done=ev.get("completed", PULL["done"]),
                             total=ev.get("total", PULL["total"]))
     except Exception as e:
-        PULL["error"] = "Unduh model gagal: %s" % e
+        PULL["error"] = ("Unduh model gagal: %s. Coba lewat Command Prompt: ollama pull %s" % (e, model))
     finally:
         PULL["active"] = False
 
 
 def pull(base, model):
-    if not PULL["active"]:
-        threading.Thread(target=_pull, args=(base, model), daemon=True).start()
+    if PULL["active"]:
+        return
+    # tandai aktif SEBELUM thread jalan, supaya UI langsung melihat unduhan berjalan
+    PULL.update(active=True, model=model, status="memulai unduhan…", done=0, total=0, error="")
+    threading.Thread(target=_pull, args=(base, model), daemon=True).start()
 
 
 def _parse(text):

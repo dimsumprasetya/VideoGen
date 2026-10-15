@@ -17,10 +17,11 @@ textarea,select,input{width:100%;background:#0e0f12;color:var(--tx);border:1px s
 textarea{height:110px;resize:vertical}input[type=checkbox],input[type=radio]{width:auto;accent-color:var(--ac)}input[type=range]{accent-color:var(--ac);padding:0}
 .row{display:flex;gap:8px;align-items:center}.row>*{flex:1}.chk{display:flex;gap:8px;align-items:center;color:var(--tx);margin:0}
 button{background:var(--ac);color:#1a0d00;border:0;border-radius:8px;padding:10px;font-weight:600;cursor:pointer;width:100%;margin-top:14px;font:inherit;font-weight:600}
-button.sec{background:#262932;color:var(--tx)}button:disabled{opacity:.5;cursor:default}button.sm{width:auto;margin:0;padding:5px 10px;font-size:12px}
+button.sec{background:#262932;color:var(--tx)}button:disabled,button.sec:disabled{background:#202228;color:#5f6472;cursor:not-allowed;opacity:1;box-shadow:inset 0 0 0 1px #2c2f38}button.sm{width:auto;margin:0;padding:5px 10px;font-size:12px}
 .pg{flex:1;min-height:0;display:none;grid-template-columns:330px 1fr}
 .side{background:var(--panel);border-right:1px solid var(--line);padding:16px;overflow:auto}
-.body{overflow:auto;padding:16px 20px 90px;position:relative}
+.body{display:flex;flex-direction:column;min-height:0;overflow:hidden;position:relative}
+.body>.inner{flex:1;min-height:0;overflow:auto;padding:16px 20px 28px}
 h2{font-size:14px;margin:20px 0 10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}h2:first-child{margin-top:0}
 h3{font-size:13px;margin:0 0 6px}
 .hint{font-size:12px;color:var(--mut)}.err{color:var(--bad)}.okc{color:var(--ok)}
@@ -38,8 +39,8 @@ h3{font-size:13px;margin:0 0 6px}
 .take.on{border-color:var(--ac)}.take video{width:100%;aspect-ratio:9/16;object-fit:cover;border-radius:5px;background:#000;cursor:pointer;display:block}
 .take .st{height:100%;aspect-ratio:9/16;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--mut);padding:4px}
 .take .x{position:absolute;top:2px;right:5px;cursor:pointer;color:var(--mut)}
-.next{position:sticky;bottom:-74px;margin:24px -20px -90px;padding:14px 20px;background:linear-gradient(transparent,var(--bg) 30%);display:flex;justify-content:flex-end;gap:10px;align-items:center}
-.next button{width:auto;margin:0;padding:11px 22px}
+.next{flex:0 0 auto;display:flex;justify-content:flex-end;gap:12px;align-items:center;padding:10px 20px;border-top:1px solid var(--line);background:var(--panel)}
+.next .hint{flex:1;text-align:right;min-width:0}.next button{width:auto;margin:0;padding:11px 22px;flex:0 0 auto}
 .box{background:#0e0f12;border:1px solid var(--line);border-radius:8px;padding:10px;font-size:12px;margin-top:12px;word-break:break-word}
 .box b{font-size:13px}.thumb{width:72px;aspect-ratio:9/16;object-fit:cover;border-radius:6px;background:#000;cursor:pointer}
 #lb{position:fixed;inset:0;background:#000d;display:none;align-items:center;justify-content:center;z-index:9}#lb img,#lb video{max-width:92vw;max-height:92vh}
@@ -65,8 +66,10 @@ nav{position:sticky;top:0;z-index:6;padding:4px 6px;flex-wrap:wrap;flex-basis:au
 nav a{padding:5px 6px;font-size:13px}nav .n{width:16px;height:16px;line-height:16px;margin-right:3px}nav .sp{flex-basis:100%;height:0}nav select{flex:1;max-width:none}
 #set{top:0;z-index:7}
 .pg{flex:none;grid-template-columns:1fr}.side{border-right:0;border-bottom:1px solid var(--line);overflow:visible}
-.body{overflow:visible;padding:14px 12px 90px}.s2,.s3,.s4,.s5{grid-template-columns:1fr}
-.grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}.stgrid{grid-template-columns:repeat(auto-fill,minmax(88px,1fr))}.next{bottom:0;margin:20px -12px -90px;padding:12px}
+html{scroll-padding-bottom:76px}.body{display:block;overflow:visible}.body>.inner{overflow:visible;padding:14px 12px 16px}.s2,.s3,.s4,.s5{grid-template-columns:1fr}
+.grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}.stgrid{grid-template-columns:repeat(auto-fill,minmax(88px,1fr))}.next{position:sticky;bottom:0;z-index:4;padding:10px 12px;gap:8px}.next .hint{font-size:11px}.next button{padding:11px 14px}
+button.sm,.btns button,nav button,.next button,.stc .pv,.take .x{min-height:36px}button.sm,.btns button{padding:8px 12px}.stc .pv{min-width:36px}
+.take .x{display:flex;align-items:center;justify-content:center;width:30px;top:0;right:0}
 #set{width:100%;position:fixed}input,select,textarea{font-size:16px}.take{width:31%}
 }
 </style></head><body>
@@ -86,11 +89,11 @@ nav a{padding:5px 6px;font-size:13px}nav .n{width:16px;height:16px;line-height:1
 <label>Bahasa cerita</label><select id="d-lang"><option>Bahasa Indonesia</option><option>English</option><option>日本語</option></select>
 <button id="d-go">Generate ide</button>
 <div class="box llmbox"></div>
-</div><div class="body">
+</div><div class="body"><div class="inner">
 <h2>Ide <span class="hint">Klik kartu untuk memilih. Semua teks bisa diedit.</span></h2><div class="grid" id="d-ideas"></div>
 <h2>Storyline <button class="sm sec" id="d-story">Kembangkan ide terpilih</button><span class="hint" id="d-msg"></span></h2>
 <textarea id="d-storyline" style="height:320px" placeholder="Pilih ide lalu klik 'Kembangkan', atau tulis storyline sendiri."></textarea>
-<div class="next"><span class="hint" id="n1"></span><button id="next1">Lanjut: tulis script →</button></div>
+</div><div class="next"><span class="hint" id="n1"></span><button id="next1">Lanjut: tulis script →</button></div>
 </div></div>
 
 <!-- 2. SCRIPT -->
@@ -103,9 +106,9 @@ nav a{padding:5px 6px;font-size:13px}nav .n{width:16px;height:16px;line-height:1
 <button class="sec" id="s-dlg">Tulis dialog / VO saja (scene tetap)</button>
 <div id="s-sum" style="margin-top:12px;font-weight:600"></div>
 <div class="box llmbox"></div>
-</div><div class="body">
+</div><div class="body"><div class="inner">
 <h2>Scene <button class="sm sec" id="s-add">+ Scene</button><span class="hint" id="s-msg"></span></h2><div id="s-list"></div>
-<div class="next"><span class="hint" id="n2"></span><button id="next2">Lanjut: breakdown script →</button></div>
+</div><div class="next"><span class="hint" id="n2"></span><button id="next2">Lanjut: breakdown script →</button></div>
 </div></div>
 
 <!-- 3. BREAKDOWN -->
@@ -119,14 +122,14 @@ nav a{padding:5px 6px;font-size:13px}nav .n{width:16px;height:16px;line-height:1
 <div class="box" id="b-models" style="display:none;margin-top:6px"></div>
 <button class="sec" id="b-go">Breakdown ulang dari script</button><div class="hint" id="b-msg" style="margin-top:6px"></div>
 <div class="box llmbox"></div>
-</div><div class="body">
+</div><div class="body"><div class="inner">
 <h2>Gaya visual <span class="hint">Pilih satu; dipakai di semua gambar &amp; video. Thumbnail = foto contoh (Pexels) atau ilustrasi; ▶ = pratinjau asli dengan karakter Anda (Z-Image, gratis).</span><button class="sm sec" id="st-all">Pratinjau semua</button></h2>
 <div class="stgrid" id="g-styles"></div><div class="hint" id="st-msg" style="margin-top:6px"></div>
 <h2>Karakter <button class="sm sec" data-add="chars">+ Tambah</button><button class="sm sec" data-genall="chars">Gambar semua</button></h2><div class="grid" id="g-chars"></div>
 <h2>Set / Lokasi <button class="sm sec" data-add="locs">+ Tambah</button><button class="sm sec" data-genall="locs">Gambar semua</button></h2><div class="grid" id="g-locs"></div>
 <h2>Properti <button class="sm sec" data-add="props">+ Tambah</button></h2><div class="grid" id="g-props"></div>
 <h2>Breakdown per scene <span class="hint">Siapa, di mana, properti apa, shot &amp; kamera. Sketsa = storyboard.</span><button class="sm sec" data-genall="scenes">Sketsa semua</button></h2><div id="g-scenes"></div>
-<div class="next"><span class="hint" id="n3"></span><button id="next3">Lanjut: produksi video →</button></div>
+</div><div class="next"><span class="hint" id="n3"></span><button id="next3">Lanjut: produksi video →</button></div>
 </div></div>
 
 <!-- 4. PRODUCTION -->
@@ -139,9 +142,9 @@ nav a{padding:5px 6px;font-size:13px}nav .n{width:16px;height:16px;line-height:1
 <div class="box" id="v-models" style="display:none"></div>
 <button id="v-all">Generate semua scene</button>
 <div class="hint" id="v-q" style="margin-top:8px"></div>
-</div><div class="body">
+</div><div class="body"><div class="inner">
 <h2>Scene <span class="hint">Prompt disusun otomatis dari script + breakdown; boleh diedit. Pilih take terbaik per scene.</span></h2><div id="v-list"></div>
-<div class="next"><span class="hint" id="n4"></span><button id="next4">Lanjut: editing &amp; sound →</button></div>
+</div><div class="next"><span class="hint" id="n4"></span><button id="next4">Lanjut: editing &amp; sound →</button></div>
 </div></div>
 
 <!-- 5. EDITING -->
@@ -159,10 +162,10 @@ nav a{padding:5px 6px;font-size:13px}nav .n{width:16px;height:16px;line-height:1
 <button class="sec" id="e-mgo" style="margin-top:6px">Generate musik sepanjang video</button><div class="hint" id="e-mmsg"></div></div>
 <div class="hint" style="margin-top:10px">SFX &amp; VO: menyusul. Untuk sekarang VO bisa direkam lalu di-upload sebagai musik/audio.</div>
 <button id="e-go">Render video final</button><div class="hint" id="e-msg" style="margin-top:6px"></div>
-</div><div class="body">
+</div><div class="body"><div class="inner">
 <div id="e-final"></div>
 <h2>Timeline <span class="hint" id="e-total"></span></h2><div id="e-list"></div>
-</div></div>
+</div></div></div>
 
 <div id="set">
 <h2 style="margin-top:0">Pengaturan <button class="sm sec" style="margin-left:auto" onclick="$('set').style.display='none'">Tutup</button></h2>
@@ -223,9 +226,49 @@ const TABS=["idea","scr","bd","prod","edit"];
 function tab(t){if(!TABS.includes(t))t="idea";TAB=t;store("tab",t);for(const k of TABS)$("p-"+k).style.display=k==t?"grid":"none";
 document.querySelectorAll("nav [data-tab]").forEach(a=>a.classList.toggle("on",a.dataset.tab==t));renderTab(t);if(["idea","scr","bd"].includes(t))llmStatus();if(t=="prod")prodSide();if(t=="bd"||t=="edit")tabModels(t)}
 document.querySelectorAll("nav [data-tab]").forEach(a=>a.onclick=()=>tab(a.dataset.tab));
-function renderTab(t){({idea:devRender,scr:scrRender,bd:bdRender,prod:prodRender,edit:editRender})[t]()}
+function renderTab(t){({idea:devRender,scr:scrRender,bd:bdRender,prod:prodRender,edit:editRender})[t]();syncButtons()}
+/* ---------------- tombol adaptif: aktif/nonaktif, label & alasan mengikuti keadaan proyek dan layanan */
+const pend=(o,fk)=>!!(o&&o.job&&!o[fk||"img"]&&!o.error);
+const llmReady=()=>!!(LLM.ok&&(LLM.models||[]).length),comfyReady=()=>!!ST.comfy;
+const NO_L="Ollama belum siap (lihat kotak Ollama di kolom kiri)",NO_C="ComfyUI belum tersambung (⚙ Pengaturan)";
+function setBtn(id,o){const b=typeof id=="string"?$(id):id;if(!b||b.dataset.busy)return;b.disabled=!!o.dis;if(o.label!=null)b.textContent=o.label;b.title=o.dis?(o.why||""):(o.tip||"")}
+/* kunci per item: klik kedua sebelum job pertama tercatat diabaikan (dulu klik ganda = job ganda) */
+const LOCKS={};async function once(key,fn){if(LOCKS[key])return false;LOCKS[key]=1;try{return await fn()}finally{delete LOCKS[key]}}
+async function busyRun(btn,label,fn){if(btn.dataset.busy)return;btn.dataset.busy=1;btn.disabled=true;const old=btn.textContent;btn.textContent=label;
+try{return await fn()}finally{delete btn.dataset.busy;btn.textContent=old;syncButtons()}}
+function syncButtons(){if(!P||!P.scenes)return;const sc=P.scenes,story=!!P.story.trim(),L=llmReady(),C=comfyReady(),ideas=P.dev.ideas.length;
+const hint=(id,t)=>{const e=$(id);if(e)e.textContent=t||""};
+// 1. Ide
+setBtn("d-go",{dis:!P.dev.prompt.trim()||!L,why:!L?NO_L:"Tulis prompt ide dulu.",label:ideas?"Generate ide lagi":"Generate ide"});
+setBtn("d-story",{dis:!ideas||P.dev.chosen<0||!L,why:!ideas?"Generate ide dulu.":!L?NO_L:"Pilih salah satu ide.",label:story?"Kembangkan ulang":"Kembangkan ide terpilih"});
+const n1L=!sc.length;setBtn("next1",{dis:(!story&&!ideas)||(n1L&&!L),why:!story&&!ideas?"Buat ide atau tulis storyline dulu.":NO_L,
+label:sc.length?"Lanjut ke Script →":story?"Lanjut: tulis script →":"Lanjut: storyline + script →"});
+hint("n1",!story&&!ideas?"Tulis prompt lalu Generate ide, atau tulis storyline sendiri.":n1L&&!L?NO_L:!story?"Ide terpilih akan dikembangkan jadi storyline, lalu script.":"");
+// 2. Script
+setBtn("s-go",{dis:!story||!L,why:!story?"Storyline masih kosong (tahap 1).":NO_L,label:sc.length?"Tulis ulang script dari storyline":"Tulis script dari storyline"});
+setBtn("s-dlg",{dis:!sc.length||P.voice=="none"||!L,why:!sc.length?"Belum ada scene.":P.voice=="none"?"Pilihan suara: tanpa ucapan.":NO_L});
+setBtn("next2",{dis:!sc.length||(!P.bd&&!L),why:!sc.length?"Tulis script dulu.":NO_L,label:P.bd?"Lanjut ke Breakdown →":"Lanjut: breakdown script →"});
+hint("n2",!sc.length?(story?"Klik 'Tulis script dari storyline' di kiri.":"Storyline masih kosong (tahap 1)."):!P.bd&&!L?NO_L:"");
+// 3. Breakdown
+setBtn("b-go",{dis:!sc.length||!L,why:!sc.length?"Belum ada scene (tahap 2).":NO_L,label:P.bd?"Breakdown ulang dari script":"Breakdown dari script"});
+const wf=$("b-imgwf").value;
+for(const k of ["chars","locs","scenes"]){const arr=k=="scenes"?sc.map(x=>x.sketch):P[k],miss=arr.filter(t=>!t.img&&!pend(t)).length,b=document.querySelector(`[data-genall=${k}]`);
+if(b)setBtn(b,{dis:!wf||!C||!miss,why:!wf?"Belum ada workflow gambar.":!C?NO_C:!arr.length?"Belum ada item.":"Semua sudah punya gambar atau sedang dibuat.",label:(k=="scenes"?"Sketsa semua":"Gambar semua")+(miss?` (${miss})`:"")})}
+const stMiss=STYLES.filter(st=>{const v=P.styleThumbs[st.id];return !(v&&v.img)&&!pend(v)}).length;
+setBtn("st-all",{dis:!wf||!C||!stMiss,why:!wf?"Belum ada workflow gambar.":!C?NO_C:"Semua gaya sudah punya pratinjau.",label:"Pratinjau semua"+(stMiss?` (${stMiss})`:"")});
+setBtn("next3",{dis:!sc.length,why:"Belum ada scene (tahap 2)."});hint("n3",!sc.length?"Belum ada scene (tahap 2).":!P.bd?"Breakdown belum dijalankan; prompt video jadi kurang lengkap.":"");
+// 4. Production
+const seed=!P.prod.engine,keyless=seed&&!ST.has_key,vMiss=sc.filter(x=>!x.takes.some(t=>t.file||pend(t,"file"))).length;
+setBtn("v-all",{dis:!sc.length||!vMiss||!C||keyless,why:!sc.length?"Belum ada scene.":!C?NO_C:keyless?"Seedance butuh API key akun Comfy (⚙ Pengaturan).":"Semua scene sudah punya take atau sedang dibuat.",
+label:!sc.length?"Generate semua scene":vMiss?`Generate semua scene (${vMiss})`:"Semua scene sudah punya take"});
+const taken=sc.filter(x=>x.take).length;setBtn("next4",{dis:!taken,why:"Belum ada take terpilih."});
+hint("n4",!taken?"Generate take dulu, lalu pilih yang terbaik.":taken<sc.length?`${sc.length-taken} scene belum punya take terpilih.`:"");
+// 5. Editing
+const E=P.edit,clips=editClips().length;if(!E.rjob)setBtn("e-go",{dis:!clips||!ST.ffmpeg,why:!clips?"Belum ada klip terpilih (tahap 4).":"ffmpeg belum terpasang.",label:`Render video final${clips?` (${clips} klip)`:""}`});
+if(!E.mjob)setBtn("e-mgo",{dis:!$("e-mwf").value||!C,why:!$("e-mwf").value?"Belum ada workflow musik.":NO_C});
+setBtn("e-up",{dis:false});}
 function renderAll(){devLoad();lookLoad();prodLoad();editLoad();renderTab(TAB);navDone();if(TAB=="prod")prodSide()}
-function navDone(){const sc=P.scenes,ok={idea:!!P.story.trim(),scr:sc.length>0,bd:P.bd||P.chars.length>0,prod:sc.length>0&&sc.every(s=>s.take),edit:!!P.edit.final};
+function navDone(){syncButtons();const sc=P.scenes,ok={idea:!!P.story.trim(),scr:sc.length>0,bd:P.bd||P.chars.length>0,prod:sc.length>0&&sc.every(s=>s.take),edit:!!P.edit.final};
 document.querySelectorAll("nav [data-tab]").forEach(a=>a.classList.toggle("ok",!!ok[a.dataset.tab]))}
 function typing(){const a=document.activeElement;return a&&(a.tagName=="TEXTAREA"||a.tagName=="INPUT"&&a.type!="checkbox"&&a.type!="radio"&&a.type!="range"||a.tagName=="SELECT")}
 function lbox(f){const L=$("lb");L.innerHTML=isImg(f)?`<img src="/outputs/${esc(f)}">`:`<video src="/outputs/${esc(f)}" controls autoplay loop></video>`;L.style.display="flex"}
@@ -241,7 +284,7 @@ if(lost(E.rjob,E.rt)){E.rjob="";$("e-msg").textContent="Render terputus (aplikas
 if(E.mjob&&!E.music&&JM[E.mjob]?.status=="done"){E.music=JM[E.mjob].file;E.audios.push(E.music);E.mjob="";$("e-mmsg").textContent="Musik jadi dan dipilih.";ch=true}else if(E.mjob&&JM[E.mjob]?.status=="error"){$("e-mmsg").textContent=JM[E.mjob].error;E.mjob="";ch=true}
 if(E.rjob&&JM[E.rjob]?.status=="done"){E.final=JM[E.rjob].file;E.rjob="";$("e-msg").textContent="Selesai. Video final ada di atas.";ch=true}else if(E.rjob&&JM[E.rjob]?.status=="error"){$("e-msg").textContent=JM[E.rjob].error;E.rjob="";ch=true}
 const q=js.filter(j=>j.status=="queued"||j.status=="running");$("v-q").textContent=q.length?`${q.length} job di antrean (dikerjakan satu per satu).`:"";
-if(ch){save();needRender=true}if(needRender&&!typing()){needRender=false;renderTab(TAB)}else updateJobSpans();actChip()}
+if(ch){save();needRender=true}if(needRender&&!typing()){needRender=false;renderTab(TAB)}else{updateJobSpans();syncButtons()}actChip()}
 /* ---------------- progres: persen + bar + waktu berjalan + perkiraan sisa */
 const fmtT=s=>s<60?s+" dtk":Math.floor(s/60)+"m "+String(s%60).padStart(2,"0")+"d";
 function progHTML(pct,label,elapsed){const eta=pct>=5&&pct<100&&elapsed?Math.round(elapsed*(100-pct)/pct):0;
@@ -262,14 +305,15 @@ if(LLMP.active)out.push(`✍ AI ${LLMP.stage=="Menulis"?LLMP.pct+"%":"memuat…"
 if(LLM.pull?.active&&LLM.pull.total)out.push(`⬇ AI ${Math.round(100*LLM.pull.done/LLM.pull.total)}%`);$("act").textContent=out.join(" · ")}
 
 /* ---------------- status aplikasi, banner, pengaturan */
-async function status(){const s=await api("/api/status");if(s.error)return;ST=s;if(VER0===null)VER0=s.version;
+async function status(){const s=await api("/api/status");if(s.error)return;const chg=ST.comfy!==s.comfy||ST.has_key!==s.has_key;ST=s;
+if(chg){if(typing())needRender=true;else renderTab(TAB)}  // tombol per item ikut aktif/nonaktif saat ComfyUI/API key berubahif(VER0===null)VER0=s.version;
 api("/api/models").then(m=>{DLST=m.dl||{};if(DLST.active)DLON=true;actChip()});
 const b=[];if(!s.comfy)b.push(`<div class="w">ComfyUI belum tersambung (dibutuhkan untuk gambar &amp; video). <button class="sec" onclick="openSet()">Pengaturan</button></div>`);
 if(DLON){tabModels();if($("set").style.display=="block")setModels()}
 if(VER0!==s.version&&s.version)b.push(`<div class="i">Aplikasi sudah diperbarui ke versi ${esc(s.version)}. <button onclick="location.reload()">Muat ulang</button></div>`);
 $("banner").innerHTML=b.join("");$("c-st").innerHTML=s.comfy?`<span class="okc">tersambung</span>`:`<span class="err">belum tersambung</span>`;$("c-log").textContent=s.log||"";
 $("k-st").textContent=s.has_key?"(tersimpan)":"(belum diisi)";$("u-st").innerHTML=`Versi ${esc(s.version||"?")} · branch ${esc(s.branch||"")} · auto-update ${s.auto_update?"aktif":"mati"}`;
-if(s.comfy&&!cfg.live)loadCfg()}
+if(s.comfy&&!cfg.live)loadCfg();syncButtons()}
 function openSet(){$("set").style.display="block";setModels();llmStatus();remoteBox()}
 async function remoteBox(msg){const el=$("r-body");
 if(ST.remote){$("r-st").innerHTML=`<span class="okc">terhubung dari perangkat ini</span>`;
@@ -327,14 +371,14 @@ else if(pl.error)h+=`<div class="err" style="margin-top:4px">${esc(pl.error)}</d
 if(LLM.ok&&!pl.active)h+=`<details style="margin-top:6px"><summary class="hint" style="cursor:pointer">Model lain / unduh manual</summary><div class="row" style="margin-top:6px"><input class="llmname" list="llmalt" value="${esc(LLM.recommended)}">
 <button class="sm sec" style="flex:0 0 auto" onclick="llmPull(this.previousElementSibling.value)">Unduh</button></div><datalist id="llmalt">${[LLM.recommended,...(LLM.alternatives||[])].map(m=>`<option value="${esc(m)}">`).join("")}</datalist>
 <div class="hint" style="margin-top:4px">Atau Command Prompt: <code>ollama pull ${esc(LLM.recommended)}</code>. Masalah? Jalankan <b>cek-ollama.bat</b>.</div></details>`;
-document.querySelectorAll(".llmbox").forEach(e=>e.innerHTML=h);if(pl.active)setTimeout(llmStatus,2000)}
+document.querySelectorAll(".llmbox").forEach(e=>e.innerHTML=h);syncButtons();if(pl.active)setTimeout(llmStatus,2000)}
 async function llmPull(name){name=(typeof name=="string"&&name.trim())||LLM.recommended;document.querySelectorAll(".llmbox button").forEach(x=>{x.disabled=true;x.textContent="Memulai unduhan…"});
 const r=await api("/api/llm/pull",{model:name});if(r.error)alert(r.error);llmStatus()}
-async function llmRun(btn,msg,body){const old=btn.textContent;btn.disabled=true;btn.textContent="Memulai AI…";if(msg)$(msg).textContent="";const t0=Date.now();
+async function llmRun(btn,msg,body){if(btn.dataset.busy)return null;btn.dataset.busy=1;const old=btn.textContent;btn.disabled=true;btn.textContent="Memulai AI…";if(msg)$(msg).textContent="";const t0=Date.now();
 const tick=setInterval(async()=>{LLMP=await api("/api/llm/progress");const el=Math.round((Date.now()-t0)/1000);
 btn.textContent=LLMP.stage=="Menulis"?`AI menulis… ${LLMP.pct}%`:`Memuat model AI… ${fmtT(el)}`;if(msg)$(msg).innerHTML=progHTML(LLMP.stage=="Menulis"?LLMP.pct:0,LLMP.stage=="Menulis"?"AI menulis":"Memuat model AI (pertama kali bisa ~30 dtk)",el);actChip()},700);
 try{const r=await api("/api/llm/run",body);if(r.error)throw new Error(r.error);if(msg)$(msg).textContent="Ditulis oleh "+r._model+(r._warn?" · ⚠ "+r._warn:"");return r}
-catch(e){if(msg)$(msg).textContent="";alert(e.message);return null}finally{clearInterval(tick);LLMP={};actChip();btn.disabled=false;btn.textContent=old}}
+catch(e){if(msg)$(msg).textContent="";alert(e.message);return null}finally{clearInterval(tick);LLMP={};actChip();delete btn.dataset.busy;btn.disabled=false;btn.textContent=old;syncButtons()}}
 
 /* ================= 1. IDE */
 const DEVF=["prompt","audience","genre","tone","lang","count"];
@@ -347,7 +391,7 @@ function devRender(){$("d-ideas").innerHTML=P.dev.ideas.map((it,i)=>`<div class=
 <span class="hint">Hook 3 detik pertama</span><textarea oninput="P.dev.ideas[${i}].hook=this.value;save()" style="height:50px">${esc(it.hook)}</textarea>
 <span class="hint">${i==P.dev.chosen?"✓ Terpilih":"Klik untuk memilih"}</span></div>`).join("")||`<div class="hint">Belum ada ide. Tulis prompt di kiri lalu klik "Generate ide".</div>`;n1()}
 function devPick(i){if(P.dev.chosen==i)return;P.dev.chosen=i;save();devRender()}
-function n1(){$("n1").textContent=P.story.trim()?"":"Kembangkan ide jadi storyline dulu (atau tulis sendiri)."}
+function n1(){syncButtons()}
 $("d-go").onclick=async()=>{if(!P.dev.prompt.trim())return alert("Tulis prompt ide dulu.");
 const r=await llmRun($("d-go"),"d-msg",Object.assign({task:"ideas"},P.dev));if(!r)return;
 P.dev.ideas=(r.ideas||[]).map(x=>({title:x.title||"",logline:x.logline||"",hook:x.hook||""}));P.dev.chosen=P.dev.ideas.length?0:-1;save();devRender()};
@@ -374,7 +418,7 @@ $("s-list").innerHTML=P.scenes.map((x,i)=>`<div class="sc s2"><div class="c"><b>
 <label class="hint">Dialog / VO <span id="dh${i}">${dlgHint(x)}</span></label><textarea placeholder="Nama: ucapan&#10;VO: narasi" oninput="P.scenes[${i}].dialog=this.value;save();$('dh${i}').innerHTML=dlgHint(P.scenes[${i}])" style="height:58px">${esc(x.dialog)}</textarea>
 <label class="hint">Teks di layar (jadi subtitle di tahap 5)</label><input value="${esc(x.onscreen_text)}" oninput="P.scenes[${i}].onscreen_text=this.value;save()"></div>
 <div class="c"><label class="hint">Prompt visual (English, untuk model video)</label><textarea oninput="P.scenes[${i}].visual=this.value;save()" style="height:170px">${esc(x.visual)}</textarea></div></div>`).join("")
-||`<div class="hint">Belum ada scene. Klik "Tulis ulang script dari storyline" atau "+ Scene".</div>`;scrSum();$("n2").textContent=P.scenes.length?"":"Tulis script dulu."}
+||`<div class="hint">Belum ada scene. ${P.story.trim()?'Klik "Tulis script dari storyline" di kiri':"Buat storyline di tahap 1 dulu"}, atau tambah manual dengan "+ Scene".</div>`;scrSum();$("n2").textContent=P.scenes.length?"":"Tulis script dulu."}
 function scMove(i,d){const j=i+d;if(j<0||j>=P.scenes.length)return;[P.scenes[i],P.scenes[j]]=[P.scenes[j],P.scenes[i]];save();scrRender()}
 function scDel(i){if(!confirm("Hapus scene "+(i+1)+"?"))return;P.scenes.splice(i,1);save();scrRender()}
 $("s-total").onchange=()=>{P.target=+$("s-total").value;save();scrSum()};$("s-max").oninput=()=>{P.maxScene=+$("s-max").value||8;save()};
@@ -410,12 +454,13 @@ const TPL={chars:it=>`Character design sheet of ${it.name||"the character"}: ${i
 locs:it=>`Establishing shot of ${it.name||"the location"}: ${it.desc}. ${P.look.style?"Style: "+P.look.style+". ":""}${P.look.lighting?"Lighting: "+P.look.lighting+". ":""}${P.look.palette?"Palette: "+P.look.palette+". ":""}Wide cinematic environment, consistent set dressing, no characters, concept art, high detail`,
 scenes:sc=>`Hand-drawn storyboard sketch, rough black-and-white pencil lines (not a polished image). ${sc.shot} shot, camera ${sc.cam}. ${sc.visual||sc.action}. ${scChars(sc).map(c=>c.name+": "+c.look).join("; ")}. Composition, character position and camera-move arrows.`};
 const scChars=sc=>P.chars.filter(c=>(sc.chars||[]).includes(c.id)),scLoc=sc=>P.locs.find(l=>l.id==sc.loc),scProps=sc=>P.props.filter(p=>(sc.props||[]).includes(p.id));
-async function genImg(kind,i){const it=kind=="scenes"?P.scenes[i]:P[kind][i],tgt=kind=="scenes"?it.sketch:it;const wf=$("b-imgwf").value;
-if(!wf){alert("Belum ada workflow gambar (folder workflows).");return false}if(!(await needModels("bd")))return false;
+function genImg(kind,i,quiet){const o=kind=="scenes"?P.scenes[i]:P[kind][i];return once("img"+(o.id||kind+i),()=>genImg_(kind,i,quiet))}
+async function genImg_(kind,i,quiet){const it=kind=="scenes"?P.scenes[i]:P[kind][i],tgt=kind=="scenes"?it.sketch:it;const wf=$("b-imgwf").value;
+if(pend(tgt))return true;if(!wf){alert("Belum ada workflow gambar (folder workflows).");return false}if(!quiet&&!(await needModels("bd")))return false;
 const r=await api("/api/generate",{prompt:TPL[kind](it),workflow:wf,aspect:kind=="chars"?"1:1":P.prod.aspect,resolution:"720p",duration:5,seed:-1,ref:PN+"/"+kind});
-if(r.error){alert(r.error);return false}Object.assign(tgt,{job:r.id,t:Date.now(),img:"",error:""});save();await poll();bdRender();return true}
-document.querySelectorAll("[data-genall]").forEach(b=>b.onclick=async()=>{const k=b.dataset.genall,arr=k=="scenes"?P.scenes:P[k];
-for(let i=0;i<arr.length;i++){const t=k=="scenes"?arr[i].sketch:arr[i];if(!t.img&&!(t.job&&!t.error)&&!(await genImg(k,i)))break}});
+if(r.error){alert(r.error);return false}Object.assign(tgt,{job:r.id,t:Date.now(),img:"",error:""});save();if(!quiet){await poll();bdRender()}return true}
+document.querySelectorAll("[data-genall]").forEach(b=>b.onclick=()=>busyRun(b,"Mengantre…",async()=>{const k=b.dataset.genall,arr=k=="scenes"?P.scenes:P[k];
+if(!(await needModels("bd")))return;for(let i=0;i<arr.length;i++){const t=k=="scenes"?arr[i].sketch:arr[i];if(!t.img&&!pend(t)&&!(await genImg(k,i,true)))break}await poll();bdRender()}));
 document.querySelectorAll("[data-add]").forEach(b=>b.onclick=()=>{const k=b.dataset.add;P[k].push(k=="chars"?{id:uid(),name:"",look:"",wardrobe:"",makeup:"",job:"",img:""}:k=="locs"?{id:uid(),name:"",desc:"",job:"",img:""}:{id:uid(),name:"",desc:""});save();bdRender()});
 function bdDel(k,i){if(!confirm("Hapus?"))return;const id=P[k][i].id;P[k].splice(i,1);P.scenes.forEach(s=>{if(s.loc==id)s.loc="";s.chars=s.chars.filter(x=>x!=id);s.props=s.props.filter(x=>x!=id)});save();bdRender()}
 const imgBox=t=>t.img?`<div class="img" onclick="lbox('${esc(t.img)}')"><img src="/outputs/${esc(t.img)}"></div>`:`<div class="img">${jobState(t)||"Belum ada gambar"}</div>`;
@@ -425,7 +470,7 @@ function stRender(){const cur=P.look.styleId||"";$("g-styles").innerHTML=STYLES.
 const ph=st.photo,credit=ph?`Foto: ${ph.by||"kontributor"} · Pexels`:"";
 return `<div class="stc ${cur==st.id?"on":""}" onclick="stPick('${st.id}')" title="${esc(st.desc+(credit?"\n"+credit:""))}"><div class="th">${pv.img?`<img src="/outputs/${esc(pv.img)}" alt=""><span class="tag">pratinjau</span>`:styleSVG(st)+
 (ph?`<img class="ph" alt="" loading="lazy" src="/api/stylethumb?pid=${ph.id}" style="${ph.css?"filter:"+ph.css:""}" onload="this.nextElementSibling.style.display='block'" onerror="phFail(this,${ph.id})"><a class="pxt" href="${esc(ph.page)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="${esc(credit)}">Pexels</a>`:"")}
-${pv.job&&!pv.img?`<div class="ov">${jobState(pv)}</div>`:""}<button class="pv" onclick="event.stopPropagation();stPreview('${st.id}')" title="Pratinjau asli dengan karakter Anda (Z-Image)">▶${pv.img?" ulang":""}</button></div>
+${pv.job&&!pv.img?`<div class="ov">${jobState(pv)}</div>`:""}<button class="pv" ${pend(pv)||!comfyReady()?"disabled":""} onclick="event.stopPropagation();stPreview('${st.id}')" title="${!comfyReady()?NO_C:"Pratinjau asli dengan karakter Anda (Z-Image)"}">${pend(pv)?"…":"▶"+(pv.img?" ulang":"")}</button></div>
 <div class="nm">${cur==st.id?"✓ ":""}${esc(st.name)}</div><div class="ds">${esc(st.desc)}</div></div>`}).join("")+
 `<div class="stc cus ${cur?"":P.look.style?"on":""}" onclick="stPick('')"><div class="th">✎</div><div class="nm">${!cur&&P.look.style?"✓ ":""}Gaya sendiri</div><div class="ds">Tulis gaya di kolom kiri.</div></div>`}
 function phFail(el,pid){if(!el.dataset.d){el.dataset.d=1;el.src=pexelsURL(pid)}else{el.nextElementSibling?.remove();el.remove()}}  // cache lokal gagal -> coba langsung -> ilustrasi
@@ -435,20 +480,21 @@ if(!P.look.lighting||had)P.look.lighting=st.lighting;if(!P.look.palette||had)P.l
 const imgs=P.chars.concat(P.locs).some(x=>x.img)||P.scenes.some(s=>s.sketch.img);
 $("st-msg").textContent=`Gaya: ${st.name}.`+(imgs?" Klik 'Gambar semua' lagi supaya gambar referensi mengikuti gaya baru.":"")}
 const stSubject=()=>{const c=P.chars[0];return c&&c.look?`${c.name}: ${c.look}${c.wardrobe?", wearing "+c.wardrobe:""}`:"a cheerful child with a small friendly animal in a sunny park"};
-async function stPreview(id,quiet){const st=STYLES.find(s=>s.id==id),wf=$("b-imgwf").value;if(!wf){alert("Belum ada workflow gambar (folder workflows).");return false}
+function stPreview(id,quiet){return once("style"+id,()=>stPreview_(id,quiet))}
+async function stPreview_(id,quiet){const st=STYLES.find(s=>s.id==id),wf=$("b-imgwf").value;if(!wf){alert("Belum ada workflow gambar (folder workflows).");return false}
 if(!quiet&&!(await needModels("bd")))return false;
 const r=await api("/api/generate",{prompt:`${st.prompt}. ${stSubject()}. Full body character in a simple setting, vertical composition, high quality.`,workflow:wf,aspect:"9:16",resolution:"480p",duration:5,seed:-1,ref:PN+"/style"});
 if(r.error){alert(r.error);return false}P.styleThumbs[id]={job:r.id,t:Date.now(),img:"",error:""};save();if(!quiet){await poll();stRender()}return true}
 $("st-all").onclick=async()=>{const todo=STYLES.filter(st=>!(P.styleThumbs[st.id]||{}).img);if(!todo.length)return alert("Semua gaya sudah punya pratinjau. Klik ▶ ulang di kartu untuk membuat ulang.");
 if(!confirm(`Buat ${todo.length} gambar pratinjau dengan Z-Image (lokal, gratis)? Di GPU 8 GB kira-kira ${Math.ceil(todo.length*20/60)}-${Math.ceil(todo.length*45/60)} menit.`))return;
-if(!(await needModels("bd")))return;for(const st of todo)if(!(await stPreview(st.id,true)))break;await poll();stRender()};
+if(!(await needModels("bd")))return;await busyRun($("st-all"),"Mengantre…",async()=>{for(const st of todo)if(!pend(P.styleThumbs[st.id])&&!(await stPreview(st.id,true)))break;await poll();stRender()})};
 function bdRender(){stRender();
 $("g-chars").innerHTML=P.chars.map((c,i)=>`<div class="it">${imgBox(c)}${fld(`P.chars[${i}].name`,c.name,"Nama")}
 <span class="hint">Fisik (English)</span>${fld(`P.chars[${i}].look`,c.look,"age, face, hair, body",1)}
 <span class="hint">Wardrobe</span>${fld(`P.chars[${i}].wardrobe`,c.wardrobe,"clothes",1,46)}<span class="hint">Make-up / rambut</span>${fld(`P.chars[${i}].makeup`,c.makeup,"none",0)}
-<div class="btns"><button onclick="genImg('chars',${i})">Gambar referensi</button><button class="sec" onclick="bdDel('chars',${i})">Hapus</button></div></div>`).join("")||`<div class="hint">Belum ada karakter.</div>`;
+<div class="btns"><button ${pend(c)||!comfyReady()?"disabled":""} title="${!comfyReady()?NO_C:""}" onclick="genImg('chars',${i})">${pend(c)?"Sedang dibuat…":c.img?"Buat ulang":"Gambar referensi"}</button><button class="sec" onclick="bdDel('chars',${i})">Hapus</button></div></div>`).join("")||`<div class="hint">Belum ada karakter.</div>`;
 $("g-locs").innerHTML=P.locs.map((c,i)=>`<div class="it">${imgBox(c)}${fld(`P.locs[${i}].name`,c.name,"Nama lokasi")}<span class="hint">Deskripsi visual (English)</span>${fld(`P.locs[${i}].desc`,c.desc,"place, time, mood, set dressing",1,70)}
-<div class="btns"><button onclick="genImg('locs',${i})">Gambar referensi</button><button class="sec" onclick="bdDel('locs',${i})">Hapus</button></div></div>`).join("")||`<div class="hint">Belum ada lokasi.</div>`;
+<div class="btns"><button ${pend(c)||!comfyReady()?"disabled":""} title="${!comfyReady()?NO_C:""}" onclick="genImg('locs',${i})">${pend(c)?"Sedang dibuat…":c.img?"Buat ulang":"Gambar referensi"}</button><button class="sec" onclick="bdDel('locs',${i})">Hapus</button></div></div>`).join("")||`<div class="hint">Belum ada lokasi.</div>`;
 $("g-props").innerHTML=P.props.map((c,i)=>`<div class="it">${fld(`P.props[${i}].name`,c.name,"Nama properti")}${fld(`P.props[${i}].desc`,c.desc,"description (English)",1,46)}<div class="btns"><button class="sec" onclick="bdDel('props',${i})">Hapus</button></div></div>`).join("")||`<div class="hint">Belum ada properti.</div>`;
 const chk=(i,arr,key,list)=>list.map(o=>`<label><input type="checkbox" ${P.scenes[i][key].includes(o.id)?"checked":""} onchange="scTog(${i},'${key}','${o.id}',this.checked)">${esc(o.name||"?")}</label>`).join("")||`<span class="hint">-</span>`;
 $("g-scenes").innerHTML=P.scenes.map((s,i)=>`<div class="sc s3"><div class="c"><b>Scene ${i+1} · ${s.duration} dtk</b><span class="hint">${esc(s.action)}</span>
@@ -457,7 +503,7 @@ $("g-scenes").innerHTML=P.scenes.map((s,i)=>`<div class="sc s3"><div class="c"><
 <div class="c"><span class="hint">Lokasi</span><select onchange="P.scenes[${i}].loc=this.value;save()"><option value="">(pilih)</option>${P.locs.map(l=>`<option value="${l.id}" ${l.id==s.loc?"selected":""}>${esc(l.name)}</option>`).join("")}</select>
 <div class="row"><div><span class="hint">Shot</span><select onchange="P.scenes[${i}].shot=this.value;save()">${SHOTS.map(x=>`<option ${x==s.shot?"selected":""}>${x}</option>`).join("")}</select></div>
 <div><span class="hint">Kamera</span><select onchange="P.scenes[${i}].cam=this.value;save()">${CAMS.map(x=>`<option ${x==s.cam?"selected":""}>${x}</option>`).join("")}</select></div></div></div>
-<div class="c">${imgBox(s.sketch)}<button class="sm sec" onclick="genImg('scenes',${i})">Sketsa</button></div></div>`).join("")||`<div class="hint">Belum ada scene (tahap 2).</div>`;
+<div class="c">${imgBox(s.sketch)}<button class="sm sec" ${pend(s.sketch)||!comfyReady()?"disabled":""} title="${!comfyReady()?NO_C:""}" onclick="genImg('scenes',${i})">${pend(s.sketch)?"Sedang dibuat…":s.sketch.img?"Sketsa ulang":"Sketsa"}</button></div></div>`).join("")||`<div class="hint">Belum ada scene (tahap 2).</div>`;
 $("n3").textContent=P.chars.length?"":"Jalankan breakdown dulu (tombol di kiri)."}
 function scTog(i,key,id,on){const a=P.scenes[i][key]=P.scenes[i][key].filter(x=>x!=id);if(on)a.push(id);save()}
 $("next3").onclick=()=>tab("prod");
@@ -485,19 +531,20 @@ $("v-audio").onchange=()=>{P.prod.audio=$("v-audio").checked;save();prodSide();p
 function prodRender(){
 $("v-list").innerHTML=P.scenes.map((s,i)=>`<div class="sc s4"><div class="c"><b>Scene ${i+1} · ${s.duration} dtk</b>
 <textarea style="height:150px" oninput="P.scenes[${i}].prompt=this.value;save()">${esc(promptOf(s))}</textarea>
-<div class="btns"><button onclick="genTake(${i})">Generate take</button>${s.prompt?`<button class="sec" onclick="P.scenes[${i}].prompt='';save();prodRender()" title="Susun ulang dari script + breakdown">↺ Prompt otomatis</button>`:""}</div></div>
+<div class="btns"><button ${s.takes.some(t=>pend(t,"file"))||!comfyReady()||(!P.prod.engine&&!ST.has_key)?"disabled":""} title="${!comfyReady()?NO_C:!P.prod.engine&&!ST.has_key?"Seedance butuh API key akun Comfy (⚙ Pengaturan).":""}" onclick="genTake(${i})">${s.takes.some(t=>pend(t,"file"))?"Sedang dibuat…":s.takes.some(t=>t.file)?"Take baru":"Generate take"}</button>${s.prompt?`<button class="sec" onclick="P.scenes[${i}].prompt='';save();prodRender()" title="Susun ulang dari script + breakdown">↺ Prompt otomatis</button>`:""}</div></div>
 <div class="c"><span class="hint">Take (klik video untuk putar, pilih satu)</span><div class="takes">${s.takes.map((t,k)=>`<div class="take ${t.file&&t.file==s.take?"on":""}">
 ${t.file?`<video src="/outputs/${esc(t.file)}#t=0.5" muted preload="metadata" onclick="lbox('${esc(t.file)}')"></video><label class="chk" style="margin-top:3px"><input type="radio" name="tk${i}" ${t.file==s.take?"checked":""} onchange="P.scenes[${i}].take='${esc(t.file)}';save();prodRender()">Pakai</label>`
 :`<div class="st">${jobState(t)}</div>`}<span class="x" onclick="delTake(${i},${k})" title="hapus take">✕</span></div>`).join("")||`<span class="hint">Belum ada take.</span>`}</div></div></div>`).join("")
 ||`<div class="hint">Belum ada scene (tahap 2).</div>`;const left=P.scenes.filter(s=>!s.take).length;$("n4").textContent=left?`${left} scene belum punya take terpilih.`:""}
 function delTake(i,k){const s=P.scenes[i],t=s.takes[k];if(!confirm("Hapus take ini dari scene?"))return;s.takes.splice(k,1);if(s.take==t.file)s.take=s.takes.find(x=>x.file)?.file||"";save();prodRender()}
 function takeBody(s){const pd=P.prod;return {prompt:promptOf(s),workflow:pd.engine,model:pd.model||$("v-model").value,aspect:pd.aspect||$("v-aspect").value,resolution:pd.resolution||$("v-res").value,duration:s.duration,seed:-1,audio:pd.audio,ref:PN+"/scene"}}
-async function genTake(i,quiet){const s=P.scenes[i];if(!quiet&&P.prod.engine&&!(await needModels("prod")))return false;const r=await api("/api/generate",takeBody(s));if(r.error){if(!quiet)alert(r.error);return false}
+function genTake(i,quiet){return once("take"+P.scenes[i].id,()=>genTake_(i,quiet))}
+async function genTake_(i,quiet){const s=P.scenes[i];if(!quiet&&P.prod.engine&&!(await needModels("prod")))return false;const r=await api("/api/generate",takeBody(s));if(r.error){if(!quiet)alert(r.error);return false}
 s.takes.push({job:r.id,t:Date.now(),file:"",error:""});save();if(!quiet){await poll();prodRender()}return true}
 $("v-all").onclick=async()=>{const todo=P.scenes.map((s,i)=>i).filter(i=>!P.scenes[i].takes.some(t=>t.file||(t.job&&!t.error)));
 if(!todo.length)return alert("Semua scene sudah punya take. Klik 'Generate take' di scene tertentu untuk take tambahan.");
 if(!P.prod.engine&&!confirm(`Seedance memakai kredit Comfy untuk ${todo.length} scene. Lanjut?`))return;if(P.prod.engine&&!(await needModels("prod")))return;
-for(const i of todo)if(!(await genTake(i,true))){alert("Gagal mengantre scene "+(i+1));break}await poll();prodRender()};
+await busyRun($("v-all"),"Mengantre…",async()=>{for(const i of todo)if(!(await genTake(i,true))){alert("Gagal mengantre scene "+(i+1));break}await poll();prodRender()})};
 $("next4").onclick=()=>{const left=P.scenes.filter(s=>!s.take).length;if(left&&!confirm(left+" scene belum punya take terpilih dan akan dilewati. Lanjut?"))return;tab("edit")};
 
 /* ================= 5. EDITING & SOUND */
@@ -520,11 +567,11 @@ ${E.sub?`<span class="hint">Subtitle</span><input value="${esc(s.sub||subSrc(s))
 $("e-total").textContent=`± ${t.toFixed(1)} detik`;$("e-go").disabled=!!E.rjob;$("e-go").textContent=E.rjob?`Merender… ${(JM[E.rjob]?.progress||{}).pct||0}%`:"Render video final";
 $("e-mgo").disabled=!!E.mjob;$("e-mgo").textContent=E.mjob?`Membuat musik… ${(JM[E.mjob]?.progress||{}).pct||0}%`:"Generate musik sepanjang video"}
 $("e-up").onclick=()=>$("e-file").click();
-$("e-file").onchange=async()=>{const f=$("e-file").files[0];if(!f)return;$("e-up").textContent="Mengunggah… 0%";
+$("e-file").onchange=async()=>{const f=$("e-file").files[0];if(!f)return;$("e-up").dataset.busy=1;$("e-up").disabled=true;$("e-up").textContent="Mengunggah… 0%";
 const r=await new Promise(ok=>{const x=new XMLHttpRequest();x.open("POST","/api/upload?name="+encodeURIComponent(f.name));x.setRequestHeader("X-Studio","1");
 x.upload.onprogress=e=>{if(e.lengthComputable)$("e-up").textContent=`Mengunggah… ${Math.round(100*e.loaded/e.total)}%`};
 x.onload=()=>{try{ok(JSON.parse(x.responseText))}catch(e){ok({error:"Upload gagal"})}};x.onerror=()=>ok({error:"Upload gagal (koneksi)"});x.send(f)});
-$("e-up").textContent="Upload musik…";$("e-file").value="";if(r.error)return alert(r.error);P.edit.music=r.file;P.edit.audios.push(r.file);save();editRender()};
+delete $("e-up").dataset.busy;$("e-up").disabled=false;$("e-up").textContent="Upload musik…";$("e-file").value="";if(r.error)return alert(r.error);P.edit.music=r.file;P.edit.audios.push(r.file);save();editRender()};
 $("e-mgo").onclick=async()=>{const wf=$("e-mwf").value;if(!wf)return alert("Belum ada workflow musik di folder workflows.");P.edit.mwf=wf;if(!(await needModels("edit")))return;
 const total=Math.max(5,Math.ceil(editClips().reduce((a,s)=>a+(s.tout||s.duration)-(s.tin||0),0))||P.target);
 const r=await api("/api/generate",{prompt:$("e-mp").value||"cheerful background music, instrumental",workflow:wf,duration:total,seed:-1,ref:PN+"/music"});
@@ -535,5 +582,5 @@ clip_audio:E.ca,clip_vol:E.cv,music:E.music,music_vol:E.mv,subtitles:!!E.sub,ref
 if(r.error)return alert(r.error);E.rjob=r.id;E.rt=Date.now();$("e-msg").textContent="Merender… (biasanya < 1 menit)";save();editRender()};
 
 /* ---------------- mulai */
-(async()=>{await loadCfg();await listProjects(store("pj"));tab(store("tab")||"idea");status();setInterval(status,4000);poll();setInterval(poll,2500)})();
+(async()=>{await loadCfg();await listProjects(store("pj"));tab(store("tab")||"idea");status();llmStatus();setInterval(status,4000);poll();setInterval(poll,2500)})();
 </script></body></html>

@@ -7,6 +7,7 @@ import comfy_detect
 import llm
 import render
 import updater
+import remote
 import json, os, queue, random, re, shutil, subprocess, sys, threading, time, uuid
 import urllib.error, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -42,6 +43,16 @@ JOBS = {}          # id -> dict
 LOCK = threading.Lock()
 WORK = queue.Queue()   # job ComfyUI dikerjakan satu per satu (VRAM 8 GB; timeout dihitung saat job mulai)
 BUSY = {"llm": 0, "render": 0}
+BIND = {"host": "127.0.0.1"}   # 0.0.0.0 bila akses dari HP (Tailscale) aktif; filter IP di remote.kind()
+LOGIN_HTML = """<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Seedance Studio - Masuk</title><style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0e0f12;color:#e8eaf0;font:16px system-ui,sans-serif}
+form{background:#16181d;border:1px solid #262932;border-radius:14px;padding:24px;width:min(92vw,340px)}h1{font-size:18px;margin:0 0 4px}p{color:#8b90a0;font-size:13px;margin:0 0 16px}
+input{width:100%;box-sizing:border-box;background:#0e0f12;color:#e8eaf0;border:1px solid #262932;border-radius:10px;padding:12px;font:inherit;font-size:20px;letter-spacing:4px;text-align:center}
+button{width:100%;margin-top:12px;background:#ff8a3d;color:#1a0d00;border:0;border-radius:10px;padding:12px;font:inherit;font-weight:700}#m{color:#f87171;font-size:13px;margin-top:10px;min-height:1em}</style></head>
+<body><form id="f"><h1>Seedance Studio</h1><p>Masukkan PIN yang diatur di PC (Pengaturan &#9881; &rarr; Akses dari HP).</p>
+<input id="pin" type="password" inputmode="numeric" autocomplete="current-password" autofocus><button>Masuk</button><div id="m"></div></form>
+<script>f.onsubmit=async e=>{e.preventDefault();const r=await fetch("/api/login",{method:"POST",headers:{"X-Studio":"1"},body:JSON.stringify({pin:pin.value})}).then(r=>r.json()).catch(()=>({error:"Tidak terhubung"}));
+if(r.ok)location.reload();else{m.textContent=r.error||"PIN salah";pin.value=""}}</script></body></html>"""
 
 
 def save_cfg(**kw):
@@ -588,24 +599,47 @@ class H(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
-    def send_json(self, obj, code=200):
+    def send_json(self, obj, code=200, headers=()):
         b = json.dumps(obj, ensure_ascii=False).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        for k, v in headers:
+            self.send_header(k, v)
         self.send_header("Content-Length", str(len(b)))
         self.end_headers()
         self.wfile.write(b)
 
-    def _local(self):
-        """Tolak DNS-rebinding: Host harus 127.0.0.1/localhost."""
-        host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]").lower()
-        if host in ("127.0.0.1", "localhost", "::1"):
-            return True
-        self.send_json({"error": "forbidden"}, 403)
-        return False
+    def _gate(self, post=False):
+        """Siapa yang boleh masuk: PC sendiri, atau perangkat Tailscale yang sudah login PIN.
+        Return 'local' / 'remote' / 'login' (belum login, boleh ke /api/login) / None (sudah dijawab)."""
+        k = remote.kind(self.client_address[0], CFG)
+        if not k or not remote.host_ok(self.headers.get("Host"), k):  # Host asing = DNS-rebinding
+            self.send_json({"error": "forbidden"}, 403)
+            return None
+        if post and self.headers.get("X-Studio") != "1":  # header khusus: halaman web lain tidak bisa mengirim (CSRF)
+            self.send_json({"error": "forbidden"}, 403)
+            return None
+        if k == "remote" and not remote.authed(self.headers.get("Cookie"), CFG):
+            path = urlparse(self.path).path
+            if post and path == "/api/login":
+                return "login"
+            if not post and path == "/":
+                b = LOGIN_HTML.encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(b)))
+                self.end_headers()
+                self.wfile.write(b)
+                return None
+            self.send_json({"error": "login"}, 401)
+            return None
+        return k
 
     def do_GET(self):
-        if not self._local():
+        self.who = self._gate()
+        if not self.who:
             return
         u = urlparse(self.path)
         if u.path == "/":
@@ -641,7 +675,16 @@ class H(BaseHTTPRequestHandler):
                 pass
             self.send_json({"comfy": bool(comfy_url()), "ffmpeg": bool(shutil.which("ffmpeg")), "log": log,
                             "has_key": bool(api_key()), "version": updater.local_version()[:7],
-                            "branch": updater.branch(), "auto_update": CFG.get("auto_update", True)})
+                            "branch": updater.branch(), "auto_update": CFG.get("auto_update", True),
+                            "remote": self.who == "remote"})
+        elif u.path == "/api/remote":
+            if self.who != "local":
+                return self.send_json({"error": "Hanya bisa diatur dari PC."}, 403)
+            ts = remote.tailscale()
+            port = CFG["app_port"]
+            urls = ["http://%s:%d" % (h, port) for h in ([ts["name"]] if ts["name"] else []) + ts["ips"]]
+            self.send_json({"enabled": bool(CFG.get("remote_access")), "has_pin": bool(CFG.get("remote_pin_hash")),
+                            "listening": BIND["host"] != "127.0.0.1", "port": port, "tailscale": ts, "urls": urls})
         elif u.path == "/api/comfy/detect":
             cmd, cwd = comfy_detect.detect(CFG)
             self.send_json({"found": bool(cmd), "cmd": cmd or "", "cwd": cwd or ""})
@@ -708,13 +751,25 @@ class H(BaseHTTPRequestHandler):
                 left -= len(chunk)
 
     def do_POST(self):
-        if not self._local():
+        self.who = self._gate(post=True)
+        if not self.who:
             return
-        if self.headers.get("X-Studio") != "1":  # header khusus: halaman web lain tidak bisa mengirim (CSRF)
-            return self.send_json({"error": "forbidden"}, 403)
         try:
             n = int(self.headers.get("Content-Length", 0))
             u = urlparse(self.path)
+            if u.path == "/api/login":
+                ip = self.client_address[0]
+                if self.who != "login":
+                    return self.send_json({"ok": True})
+                if remote.locked(ip):
+                    return self.send_json({"error": "Terlalu banyak PIN salah. Coba lagi 5 menit lagi."}, 429)
+                d = json.loads(self.rfile.read(min(n, 4096)) or b"{}")
+                if remote.check_pin(d.get("pin"), CFG):
+                    return self.send_json({"ok": True}, headers=[("Set-Cookie", remote.cookie(CFG))])
+                remote.failed(ip)
+                return self.send_json({"error": "PIN salah."}, 401)
+            if u.path == "/api/logout":
+                return self.send_json({"ok": True}, headers=[("Set-Cookie", remote.cookie(CFG, clear=True))])
             if u.path == "/api/upload":  # body = isi file mentah
                 name = os.path.basename(parse_qs(u.query).get("name", ["file"])[0])
                 ext = os.path.splitext(name)[1].lower()
@@ -732,6 +787,20 @@ class H(BaseHTTPRequestHandler):
                         left -= len(chunk)
                 return self.send_json({"file": dst})
             d = json.loads(self.rfile.read(n) or b"{}")
+            if self.path == "/api/remote":
+                if self.who != "local":
+                    return self.send_json({"error": "Hanya bisa diatur dari PC."}, 403)
+                if d.get("pin"):
+                    save_cfg(**remote.pin_fields(d["pin"]))
+                if "enabled" in d:
+                    if d["enabled"] and not CFG.get("remote_pin_hash"):
+                        raise ValueError("Atur PIN dulu (minimal 6 karakter).")
+                    save_cfg(remote_access=bool(d["enabled"]))
+                want = "0.0.0.0" if CFG.get("remote_access") and CFG.get("remote_pin_hash") else "127.0.0.1"
+                restart = want != BIND["host"]
+                if restart:  # ganti alamat dengar: keluar, supervisor menyalakan app.py lagi dalam ~5 dtk
+                    threading.Timer(1.0, os._exit, [3]).start()
+                return self.send_json({"ok": True, "restart": restart})
             if self.path == "/api/render":
                 self.send_json(start_render(d))
             elif self.path == "/api/update/check":
@@ -833,8 +902,11 @@ def main():
     load_history()
     threading.Thread(target=worker, daemon=True).start()
     port = CFG["app_port"]
-    srv = Server(("127.0.0.1", port), H)
-    print("Seedance Studio: http://127.0.0.1:%d" % port, flush=True)
+    if CFG.get("remote_access") and CFG.get("remote_pin_hash"):
+        BIND["host"] = "0.0.0.0"  # perangkat lain disaring di remote.kind(): hanya Tailscale + PIN
+    srv = Server((BIND["host"], port), H)
+    print("Seedance Studio: http://127.0.0.1:%d%s" % (port, " (akses HP via Tailscale aktif)" if BIND["host"] != "127.0.0.1" else ""),
+          flush=True)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

@@ -45,11 +45,23 @@ h3{font-size:13px;margin:0 0 6px}
 #lb{position:fixed;inset:0;background:#000d;display:none;align-items:center;justify-content:center;z-index:9}#lb img,#lb video{max-width:92vw;max-height:92vh}
 #set{position:fixed;top:44px;right:0;bottom:0;width:380px;background:var(--panel);border-left:1px solid var(--line);padding:16px;overflow:auto;display:none;z-index:5}
 .final video{max-height:60vh;max-width:100%;border-radius:10px;background:#000}
+.url{font-size:14px;font-weight:700;color:var(--tx);background:#16181d;border:1px solid var(--line);border-radius:6px;padding:6px 8px;margin-top:4px;user-select:all;word-break:break-all}
+/* HP / layar sempit: satu kolom, halaman bergulir utuh */
+@media (max-width:820px){
+body{height:auto;min-height:100vh}
+nav{position:sticky;top:0;z-index:6;padding:4px 6px;flex-wrap:wrap;flex-basis:auto;row-gap:4px;overflow:visible}nav b,nav .ar,#saved,nav .xs{display:none}
+nav a{padding:5px 6px;font-size:13px}nav .n{width:16px;height:16px;line-height:16px;margin-right:3px}nav .sp{flex-basis:100%;height:0}nav select{flex:1;max-width:none}
+#set{top:0;z-index:7}
+.pg{flex:none;grid-template-columns:1fr}.side{border-right:0;border-bottom:1px solid var(--line);overflow:visible}
+.body{overflow:visible;padding:14px 12px 90px}.s2,.s3,.s4,.s5{grid-template-columns:1fr}
+.grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}.next{bottom:0;margin:20px -12px -90px;padding:12px}
+#set{width:100%;position:fixed}input,select,textarea{font-size:16px}.take{width:31%}
+}
 </style></head><body>
 <nav><b>Seedance Studio</b>
 <a data-tab="idea"><span class="n">1</span>Ide</a><span class="ar">›</span><a data-tab="scr"><span class="n">2</span>Script</a><span class="ar">›</span>
 <a data-tab="bd"><span class="n">3</span>Breakdown</a><span class="ar">›</span><a data-tab="prod"><span class="n">4</span>Production</a><span class="ar">›</span>
-<a data-tab="edit"><span class="n">5</span>Editing &amp; Sound</a>
+<a data-tab="edit"><span class="n">5</span>Editing<span class="xs"> &amp; Sound</span></a>
 <span class="sp"></span><span class="hint" id="saved" style="margin-right:8px;white-space:nowrap"></span><select id="pj" title="Proyek"></select>
 <button class="sec" id="pjnew">Baru</button><button class="sec" id="pjdel">Hapus</button><button class="sec" id="setbtn" title="Pengaturan">⚙</button></nav>
 <div id="banner"></div>
@@ -143,6 +155,9 @@ h3{font-size:13px;margin:0 0 6px}
 <div class="box"><b>Penulis AI (Ollama)</b><div class="llmbox" style="margin-top:6px"></div></div>
 <div class="box"><b>API key akun Comfy</b> <span id="k-st" class="hint"></span><div class="hint">Hanya untuk Seedance (berbayar). Workflow lokal tidak butuh.</div>
 <input type="password" id="k-key" placeholder="comfyui-… (dari platform.comfy.org)" style="margin-top:6px"><button class="sec" id="k-save" style="margin-top:6px">Simpan API key</button></div>
+<div class="box"><b>Akses dari HP / laptop lain</b> <span id="r-st"></span>
+<div class="hint" style="margin:4px 0">Lewat <b>Tailscale</b> (jaringan pribadi gratis). Hanya perangkat di akun Tailscale Anda yang tahu PIN bisa masuk; perangkat lain di Wi-Fi/internet ditolak.</div>
+<div id="r-body"></div></div>
 <div class="box"><b>Versi aplikasi</b><div id="u-st" class="hint" style="margin-top:4px"></div><button class="sec" id="u-check" style="margin-top:6px">Cek pembaruan sekarang</button></div>
 </div>
 <div id="lb" onclick="if(event.target==this){this.style.display='none';this.innerHTML=''}"></div>
@@ -152,7 +167,8 @@ const $=id=>document.getElementById(id);
 const esc=s=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 const uid=()=>Math.random().toString(36).slice(2,9);
 const store=(k,v)=>{try{if(v===undefined)return localStorage.getItem(k)||"";localStorage.setItem(k,v)}catch(e){return ""}};
-const api=(p,b)=>fetch(p,b===undefined?{}:{method:"POST",headers:{"X-Studio":"1"},body:JSON.stringify(b)}).then(r=>r.json()).catch(e=>({error:"Aplikasi tidak menjawab: "+e.message}));
+const api=(p,b)=>fetch(p,b===undefined?{}:{method:"POST",headers:{"X-Studio":"1"},body:JSON.stringify(b)})
+.then(r=>{if(r.status==401&&p!="/api/login")location.reload();return r.json()}).catch(e=>({error:"Aplikasi tidak menjawab: "+e.message}));
 const isImg=f=>/\.(png|jpe?g|webp)$/i.test(f||""),isAud=f=>/\.(mp3|wav|flac|ogg|m4a|opus)$/i.test(f||""),isVid=f=>/\.(mp4|webm|mov|mkv)$/i.test(f||"");
 const SHOTS=["Wide","Medium","Close-up","Extreme close-up","Over-the-shoulder","POV","Top-down"];
 const CAMS=["Static","Pan","Tilt","Push-in","Pull-out","Tracking","Handheld","Orbit"];
@@ -212,7 +228,24 @@ if(VER0!==s.version&&s.version)b.push(`<div class="i">Aplikasi sudah diperbarui 
 $("banner").innerHTML=b.join("");$("c-st").innerHTML=s.comfy?`<span class="okc">tersambung</span>`:`<span class="err">belum tersambung</span>`;$("c-log").textContent=s.log||"";
 $("k-st").textContent=s.has_key?"(tersimpan)":"(belum diisi)";$("u-st").innerHTML=`Versi ${esc(s.version||"?")} · branch ${esc(s.branch||"")} · auto-update ${s.auto_update?"aktif":"mati"}`;
 if(s.comfy&&!cfg.live)loadCfg()}
-function openSet(){$("set").style.display="block";setModels();llmStatus()}
+function openSet(){$("set").style.display="block";setModels();llmStatus();remoteBox()}
+async function remoteBox(msg){const el=$("r-body");
+if(ST.remote){$("r-st").innerHTML=`<span class="okc">terhubung dari perangkat ini</span>`;
+el.innerHTML=`<div class="hint">Pengaturan akses hanya bisa diubah dari PC.</div><button class="sec" style="margin-top:6px" onclick="api('/api/logout',{}).then(()=>location.reload())">Keluar dari perangkat ini</button>`;return}
+const r=await api("/api/remote");if(r.error){el.innerHTML=`<div class="err">${esc(r.error)}</div>`;return}const ts=r.tailscale||{};
+$("r-st").innerHTML=r.enabled&&r.listening?`<span class="okc">aktif</span>`:r.enabled?`<span class="hint">menyalakan…</span>`:`<span class="hint">mati</span>`;
+const step=(ok,t)=>`<div class="${ok?"okc":""}" style="margin-top:6px">${ok?"✓":"○"} ${t}</div>`;
+el.innerHTML=step(ts.installed,ts.installed?"Tailscale terpasang di PC":`Pasang Tailscale di PC <b>dan</b> HP (tailscale.com/download), login dengan akun yang sama.`)+
+step(ts.running,ts.running?"Tailscale aktif"+(ts.name?` (${esc(ts.name)})`:""):"Buka Tailscale di PC lalu login.")+
+step(r.has_pin,r.has_pin?"PIN sudah diatur":"Atur PIN (minimal 6 karakter) untuk masuk dari HP.")+
+`<div class="row" style="margin-top:6px"><input id="r-pin" type="password" inputmode="numeric" placeholder="${r.has_pin?"PIN baru (opsional)":"PIN minimal 6 karakter"}"><button class="sm sec" style="flex:0 0 auto" onclick="remoteSet({pin:$('r-pin').value})">Simpan PIN</button></div>`+
+`<button ${r.has_pin?"":"disabled"} style="margin-top:8px" onclick="remoteSet({enabled:${!r.enabled}})">${r.enabled?"Matikan akses dari HP":"Aktifkan akses dari HP"}</button>`+
+(r.enabled&&r.listening?(r.urls.length?`<div style="margin-top:10px">Buka di browser HP (Tailscale HP harus aktif):</div>${r.urls.map(u=>`<div class="url">${esc(u)}</div>`).join("")}`
+:`<div class="hint" style="margin-top:8px">Alamat Tailscale PC belum terbaca. Lihat alamat 100.x.x.x di aplikasi Tailscale, lalu buka http://100.x.x.x:${r.port}</div>`)+
+`<div class="hint" style="margin-top:8px">HP tidak bisa membuka? Jalankan <b>izinkan-akses-hp.bat</b> di folder aplikasi sekali (minta izin admin) untuk membuka firewall khusus Tailscale.</div>`:"")+
+(msg?`<div class="hint" style="margin-top:8px">${esc(msg)}</div>`:"")}
+async function remoteSet(body){const r=await api("/api/remote",body);if(r.error)return alert(r.error);
+if(r.restart){remoteBox("Menyalakan ulang server… halaman dimuat ulang otomatis.");setTimeout(()=>location.reload(),7000)}else remoteBox(body.pin?"PIN tersimpan.":"")}
 $("setbtn").onclick=()=>$("set").style.display=="block"?$("set").style.display="none":openSet();
 $("c-find").onclick=async()=>{$("c-msg").textContent="Mencari…";const r=await api("/api/comfy/save",{path:$("c-path").value});$("c-msg").textContent=r.error||"Tersimpan. Menyalakan ComfyUI, tunggu sebentar…"};
 $("k-save").onclick=async()=>{const r=await api("/api/apikey",{key:$("k-key").value});$("k-key").value="";$("k-st").textContent=r.has_key?"(tersimpan)":"(belum diisi)"};

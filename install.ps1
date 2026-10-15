@@ -123,6 +123,26 @@ if ($hasOllama) {
     if (-not $up) { Write-Host 'Ollama belum menjawab; buka aplikasi Ollama sekali dari Start Menu.' -ForegroundColor Yellow }
 }
 
+# 6b. Akses dari HP lewat Tailscale (opsional)
+$cfgObj = try { Get-Content (Join-Path $Dir 'studio_config.json') -Raw | ConvertFrom-Json } catch { $null }
+$remoteOn = $cfgObj -and $cfgObj.remote_access
+if (-not $remoteOn -and (Ask 'Ingin membuka aplikasi dari HP / laptop lain (lewat Tailscale, gratis)?')) {
+    $tsExe = 'C:\Program Files\Tailscale\tailscale.exe'
+    if (-not (Test-Path $tsExe) -and -not (Get-Command tailscale -ErrorAction SilentlyContinue)) {
+        if (HasWinget) { winget install -e --id Tailscale.Tailscale --accept-source-agreements --accept-package-agreements; RefreshPath }
+        else { Write-Host 'Pasang Tailscale dari https://tailscale.com/download' -ForegroundColor Yellow }
+    }
+    $pin = ''
+    while ($pin.Length -lt 6) { $pin = (Read-Host 'Buat PIN untuk masuk dari HP (minimal 6 karakter)').Trim() }
+    & $py (Join-Path $Dir 'remote.py') --set-pin $pin --enable
+    Say 'Membuka firewall khusus Tailscale (jendela izin admin akan muncul)...'
+    try {
+        Start-Process powershell -Verb RunAs -Wait -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -File "' + (Join-Path $Dir 'izinkan-akses-hp.ps1') + '" -NoPause')
+    } catch { Write-Host 'Firewall belum dibuka. Jalankan izinkan-akses-hp.bat nanti.' -ForegroundColor Yellow }
+    Write-Host 'Langkah di HP: pasang aplikasi Tailscale, login dengan akun yang sama seperti di PC,' -ForegroundColor Green
+    Write-Host 'lalu buka alamat yang tertera di Pengaturan (ikon gear) > Akses dari HP.' -ForegroundColor Green
+}
+
 # 7. Shortcut Desktop + Start Menu, auto-start
 $sh = New-Object -ComObject WScript.Shell
 $vbs = Join-Path $Dir 'studio.vbs'

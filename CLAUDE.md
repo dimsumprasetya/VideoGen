@@ -7,7 +7,7 @@ Web UI lokal (Python stdlib saja, tanpa dependensi) untuk membuat klip YouTube S
 - `studio.pyw` — supervisor latar belakang: menyalakan ComfyUI (deteksi otomatis atau `comfy_cmd`) + `app.py` tanpa jendela, restart otomatis, membuka jendela `--app` Edge/Chrome. Satu instance lewat lock socket di `app_port + 1`. Menulis `studio.pids` dan `studio.log`.
 - `studio.vbs` — peluncur tersembunyi untuk `studio.pyw`. `stop.bat` — hentikan semua. `autostart-on.bat` / `autostart-off.bat` — tambah/hapus auto-start di folder Startup Windows. `run.bat` — jalan manual dengan console.
 - `buat-shortcut.bat` — buat shortcut "Seedance Studio" di Desktop.
-- `update.bat` — stop, `git pull`, nyalakan lagi.
+- `update.bat` — stop, `update.ps1`, nyalakan lagi (semua dalam satu baris karena .bat ikut ditimpa). `update.ps1 [branch]`: `git pull` bila ada `.git`, selain itu unduh ZIP GitHub (`archive/HEAD.zip` = branch default) dan salin di atas folder, kecuali `studio_config.json`/`api_key.txt` yang sudah ada. Folder pemilik bukan clone git (diunduh ZIP).
 - API key akun Comfy (wajib untuk node API berbayar bila dipanggil lewat `/prompt` tanpa UI ComfyUI) dikirim di `extra_data.api_key_comfy_org`; disimpan di `api_key.txt` (gitignored) lewat UI, atau env `COMFY_API_KEY`.
 - Model/aspek/resolusi dibaca dari `/object_info/ByteDanceTextToVideoNode`; input yang tidak dimiliki node disaring sebelum dikirim.
 - `studio_config.json` — `comfy_cmd`, `comfy_cwd`, `comfy_ports` (8188 ComfyUI biasa, 8000 ComfyUI Desktop), `app_port`, dll.

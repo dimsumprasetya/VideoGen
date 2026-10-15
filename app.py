@@ -12,6 +12,7 @@ from urllib.parse import urlparse, parse_qs, quote
 BASE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(BASE, "outputs")
 WF = os.path.join(BASE, "workflows")
+PROJ = os.path.join(BASE, "projects")  # breakdown pra-produksi: projects/<nama>.json
 VIDEO_EXT = (".mp4", ".webm", ".mov", ".mkv")
 IMAGE_EXT = (".png", ".jpg", ".jpeg", ".webp")
 MIME = {".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime", ".png": "image/png",
@@ -443,6 +444,13 @@ def clean_params(d):
     }
 
 
+def proj_path(name):
+    name = re.sub(r"[^\w\- ]", "", str(name or "")).strip()[:60]
+    if not name:
+        raise ValueError("Nama proyek kosong.")
+    return os.path.join(PROJ, name + ".json")
+
+
 def merge(files):
     if not shutil.which("ffmpeg"):
         raise RuntimeError("ffmpeg tidak ditemukan di PATH.")
@@ -517,6 +525,15 @@ class H(BaseHTTPRequestHandler):
             wf = os.path.basename(parse_qs(u.query).get("workflow", [""])[0])
             ms = model_status(comfy_url(), wf_meta(wf)) if wf else None
             self.send_json({"models": ms, "dl": DL})
+        elif u.path == "/api/projects":
+            names = sorted(f[:-5] for f in os.listdir(PROJ) if f.endswith(".json")) if os.path.isdir(PROJ) else []
+            self.send_json(names)
+        elif u.path == "/api/project":
+            try:
+                with open(proj_path(parse_qs(u.query).get("name", [""])[0]), encoding="utf-8") as f:
+                    self.send_json(json.load(f))
+            except (OSError, ValueError):
+                self.send_json({})
         elif u.path == "/api/jobs":
             with LOCK:
                 jobs = sorted(JOBS.values(), key=lambda j: j["created"], reverse=True)
@@ -598,6 +615,18 @@ class H(BaseHTTPRequestHandler):
                 if todo and not DL["active"]:
                     threading.Thread(target=download_models, args=(base, todo), daemon=True).start()
                 self.send_json({"started": bool(todo)})
+            elif self.path == "/api/project":
+                path = proj_path(d.get("name"))
+                os.makedirs(PROJ, exist_ok=True)
+                if d.get("delete"):
+                    if os.path.exists(path):
+                        os.remove(path)
+                else:
+                    tmp = path + ".tmp"
+                    with open(tmp, "w", encoding="utf-8") as f:
+                        json.dump(d.get("data") or {}, f, ensure_ascii=False, indent=1)
+                    os.replace(tmp, path)
+                self.send_json({"ok": True})
             elif self.path == "/api/apikey":
                 k = str(d.get("key", "")).strip()
                 if k:
@@ -636,7 +665,10 @@ HTML = r"""<!doctype html>
 <title>Seedance Studio</title>
 <style>
 :root{--bg:#0e0f12;--panel:#16181d;--line:#262932;--tx:#e8eaf0;--mut:#8b90a0;--ac:#ff8a3d}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:14px system-ui,sans-serif;height:100vh;display:grid;grid-template-columns:320px 1fr;grid-template-rows:1fr 150px}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:14px system-ui,sans-serif;height:100vh;display:flex;flex-direction:column}
+nav{flex:0 0 40px;display:flex;gap:4px;align-items:center;padding:0 12px;border-bottom:1px solid var(--line);background:var(--panel)}
+nav b{margin-right:12px}nav a{padding:6px 14px;border-radius:8px;color:var(--mut);cursor:pointer;text-decoration:none}nav a.on{background:#262932;color:var(--tx)}
+#studio{flex:1;min-height:0;display:grid;grid-template-columns:320px 1fr;grid-template-rows:1fr 150px}
 aside{grid-row:1/3;background:var(--panel);border-right:1px solid var(--line);padding:16px;overflow:auto}
 h1{font-size:15px;margin:0 0 14px;display:flex;justify-content:space-between;align-items:center}
 .chip{font-size:11px;padding:2px 8px;border-radius:99px;background:#3a2a1a;color:var(--ac)}.chip.ok{background:#173323;color:#4ade80}
@@ -654,9 +686,25 @@ footer{border-top:1px solid var(--line);background:var(--panel);display:flex;gap
 .card.sel{border-color:var(--ac)}.card .p{overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;color:var(--mut)}
 .card .s{font-weight:600}.s.error{color:#f87171}.s.done{color:#4ade80}.card input{position:absolute;top:6px;right:6px}
 .card .x{position:absolute;bottom:4px;right:6px;color:var(--mut)}
+#bd{flex:1;min-height:0;display:none;grid-template-columns:340px 1fr}
+#bd .side{background:var(--panel);border-right:1px solid var(--line);padding:16px;overflow:auto}
+#bd .side input,#bd .grid input,#bd .grid select{width:100%;background:#0e0f12;color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:7px;font:inherit}
+#bd .body{overflow:auto;padding:16px 20px}
+#bd h2{font-size:14px;margin:18px 0 10px;display:flex;align-items:center;gap:10px}#bd h2:first-child{margin-top:0}
+#bd h2 button{width:auto;margin:0;padding:5px 12px;font-size:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+.it{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:6px}
+.it .img{aspect-ratio:1;background:#0e0f12;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--mut);font-size:12px;overflow:hidden;cursor:pointer}
+.it .img img{width:100%;height:100%;object-fit:cover}.it textarea{height:70px}
+.it .btns{display:flex;gap:6px}.it .btns button{margin:0;padding:7px;font-size:12px}
+.it .tags{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:12px}.it .tags label{margin:0;display:flex;gap:4px;align-items:center;color:var(--tx)}
+.hint{font-size:12px;color:var(--mut)}
+#lb{position:fixed;inset:0;background:#000c;display:none;align-items:center;justify-content:center;z-index:9}#lb img{max-width:92vw;max-height:92vh}
 </style></head><body>
+<nav><b>Seedance Studio</b><a id="tab-studio" class="on">Studio</a><a id="tab-bd">Breakdown</a></nav>
+<div id="studio">
 <aside>
-<h1>Seedance Studio <span id="st" class="chip">ComfyUI…</span></h1>
+<h1>Generate <span id="st" class="chip">ComfyUI…</span></h1>
 <div id="setup" style="display:none;background:#2a1d12;border:1px solid #5a3a1a;border-radius:8px;padding:10px;margin-bottom:8px">
 <b>ComfyUI belum tersambung</b><div style="color:var(--mut);font-size:12px;margin:4px 0">Klik cari otomatis, atau tempel lokasi ComfyUI.exe / folder ComfyUI / port (mis. 8000) bila ComfyUI sudah jalan.</div>
 <input id="cpath" placeholder="Lokasi ComfyUI.exe atau folder ComfyUI" style="width:100%;background:#0e0f12;color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:8px;font:inherit">
@@ -681,6 +729,27 @@ footer{border-top:1px solid var(--line);background:var(--panel);display:flex;gap
 </aside>
 <main><video id="v" controls loop style="display:none"></video><img id="im" style="display:none;max-width:100%;max-height:100%;border-radius:10px"><div id="msg">Tulis prompt lalu klik Generate. Hasil muncul di bawah.</div></main>
 <footer id="list"></footer>
+</div>
+<div id="bd">
+<div class="side">
+<label style="margin-top:0">Proyek</label>
+<div class="row"><select id="pj"></select><button class="sec" id="pjnew" style="flex:0 0 auto;width:auto;margin:0;padding:8px 12px">Baru</button></div>
+<label>Script / beats</label><textarea id="bscript" style="height:220px"></textarea>
+<button class="sec" id="bbeats">Pecah beats bernomor jadi panel storyboard</button>
+<label>Gaya visual (dipakai di gambar karakter & lokasi)</label><textarea id="bstyle" style="height:90px" placeholder="Cute 3D animation, soft plush and clay texture, pastel but vivid colors…"></textarea>
+<label>Workflow gambar</label><select id="bwf"></select>
+<div class="hint" id="bwfh"></div>
+<button id="bstyle2">Isi "Gaya &amp; karakter" di Studio dari breakdown</button>
+<button class="sec" id="pjdel">Hapus proyek ini</button>
+<div class="hint" id="bsave" style="margin-top:8px"></div>
+</div>
+<div class="body">
+<h2>Karakter <button class="sec" data-add="chars">+ Tambah</button></h2><div class="grid" id="g-chars"></div>
+<h2>Set / Lokasi <button class="sec" data-add="locs">+ Tambah</button></h2><div class="grid" id="g-locs"></div>
+<h2>Storyboard <button class="sec" data-add="panels">+ Panel</button><span class="hint">Sketsa per panel; "Ke Studio" mengisi prompt scene + durasi.</span></h2><div class="grid" id="g-panels"></div>
+</div>
+</div>
+<div id="lb" onclick="this.style.display='none'"><img id="lbi"></div>
 <script>
 const $=id=>document.getElementById(id);let cfg,sel=new Set(),cur="";
 const api=(p,b)=>fetch(p,b?{method:"POST",body:JSON.stringify(b)}:{}).then(r=>r.json());
@@ -724,9 +793,76 @@ ${d?`<span class="x" onclick="event.stopPropagation();del('${j.file}')">hapus</s
 $("merge").disabled=sel.size<2}
 function tog(f){sel.has(f)?sel.delete(f):sel.add(f);$("merge").disabled=sel.size<2}
 async function del(f){if(!confirm("Hapus klip ini?"))return;await api("/api/delete",{file:f});sel.delete(f);poll()}
-async function poll(){render(await api("/api/jobs"))}
+async function poll(){const j=await api("/api/jobs");render(j);bdJobs(j)}
 $("merge").onclick=async()=>{$("merge").disabled=true;const order=last.filter(j=>sel.has(j.file)).reverse().map(j=>j.file);const r=await api("/api/merge",{files:order});if(r.error)alert(r.error);else{sel.clear();await poll();play(r.file)}};
-init();
+/* ---------------- Breakdown */
+const SHOTS=["Wide","Medium","Close-up","Extreme close-up","Over-the-shoulder","POV","Top-down"];
+const CAMS=["Static","Pan","Tilt","Push-in","Pull-out","Tracking","Handheld","Orbit"];
+const TPL={chars:(it,P)=>`Character design sheet of ${it.name||"the character"}: ${it.desc}. ${P.style?"Style: "+P.style+". ":""}Full-body and close-up portrait, neutral studio background, clear consistent facial features and wardrobe, front and three-quarter views, cinematic lighting, high detail reference sheet`,
+locs:(it,P)=>`Establishing shot of ${it.name||"the location"}: ${it.desc}. ${P.style?"Style: "+P.style+". ":""}Wide cinematic environment, consistent architecture and set dressing, atmospheric lighting and time of day, no characters, concept art quality, high detail`,
+panels:(it,P)=>`Hand-drawn storyboard sketch panel, rough black-and-white line-sketch style (not a polished poster). ${it.shot} shot, camera ${it.cam}. ${it.desc}. ${scene(it,P,true)} Show composition, character position and camera-move arrows, one caption line: "${(it.desc||"").slice(0,60).replace(/"/g,"'")}"`};
+const BLANK=()=>({script:"TITLE: [Judul]\n\nLOGLINE: Satu kalimat ringkasan.\n\nSCRIPT / BEATS:\n1. Opening — apa yang terlihat.\n2. Rising action — apa yang terjadi.\n3. Turn — momen kunci.\n4. Resolution — gambar penutup.",style:"",chars:[],locs:[],panels:[]});
+let P=BLANK(),PN="",bdT=0;
+const esc=s=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
+const uid=()=>Math.random().toString(36).slice(2,9);
+function scene(it,P,short){const loc=P.locs.find(l=>l.id==it.loc),cs=P.chars.filter(c=>(it.chars||[]).includes(c.id));
+return (loc?`Location: ${loc.name}${short?"":" — "+loc.desc}. `:"")+(cs.length?`Characters: ${cs.map(c=>c.name+(short?"":" ("+c.desc+")")).join(", ")}.`:"")}
+function tab(t){store("tab",t);$("studio").style.display=t=="bd"?"none":"grid";$("bd").style.display=t=="bd"?"grid":"none";
+$("tab-studio").className=t=="bd"?"":"on";$("tab-bd").className=t=="bd"?"on":"";if(t=="bd")bdImgWf()}
+$("tab-studio").onclick=()=>tab("studio");$("tab-bd").onclick=()=>tab("bd");
+function bdImgWf(){const keep=$("bwf").value||store("bwf");$("bwf").innerHTML=(cfg.workflows||[]).map(w=>`<option value="${esc(w.file)}">${esc(w.label)}</option>`).join("");
+const z=(cfg.workflows||[]).find(w=>/image|gambar/i.test(w.file));if((cfg.workflows||[]).some(w=>w.file==keep))$("bwf").value=keep;else if(z)$("bwf").value=z.file;
+$("bwfh").textContent=(cfg.workflows||[]).length?"Model lokal; cek/unduh model lewat dropdown Workflow di tab Studio.":"Belum ada workflow gambar di folder workflows."}
+$("bwf").onchange=()=>store("bwf",$("bwf").value);
+async function bdList(sel){const ns=await api("/api/projects");if(!ns.length)ns.push("Proyek 1");
+$("pj").innerHTML=ns.map(n=>`<option>${esc(n)}</option>`).join("");$("pj").value=ns.includes(sel)?sel:ns[0];await bdLoad($("pj").value)}
+async function bdLoad(n){PN=n;store("pj",n);const d=await api("/api/project?name="+encodeURIComponent(n));P=Object.assign(BLANK(),d||{});
+$("bscript").value=P.script;$("bstyle").value=P.style;bdRender()}
+function bdSave(){clearTimeout(bdT);$("bsave").textContent="Menyimpan…";bdT=setTimeout(async()=>{const r=await api("/api/project",{name:PN,data:P});$("bsave").textContent=r.error?r.error:"Tersimpan di projects/"+PN+".json"},600)}
+$("pj").onchange=()=>bdLoad($("pj").value);
+$("pjnew").onclick=async()=>{const n=prompt("Nama proyek baru:");if(!n)return;PN=n;P=BLANK();await api("/api/project",{name:n,data:P});bdList(n.replace(/[^\w\- ]/g,"").trim())};
+$("pjdel").onclick=async()=>{if(!confirm("Hapus proyek "+PN+"?"))return;await api("/api/project",{name:PN,delete:1});bdList()};
+$("bscript").oninput=()=>{P.script=$("bscript").value;bdSave()};$("bstyle").oninput=()=>{P.style=$("bstyle").value;bdSave()};
+document.querySelectorAll("[data-add]").forEach(b=>b.onclick=()=>{const k=b.dataset.add;
+P[k].push(k=="panels"?{id:uid(),desc:"",shot:"Medium",cam:"Static",loc:"",chars:[],dur:5}:{id:uid(),name:"",desc:""});bdSave();bdRender()});
+$("bbeats").onclick=()=>{const beats=P.script.split(/\n/).map(l=>l.match(/^\s*\d+[.)]\s*(.+)/)).filter(Boolean).map(m=>m[1].trim());
+if(!beats.length)return alert("Tidak ada baris bernomor (1. 2. 3.) di script.");
+if(P.panels.length&&!confirm("Tambahkan "+beats.length+" panel baru di bawah panel yang ada?"))return;
+beats.forEach(t=>P.panels.push({id:uid(),desc:t,shot:"Medium",cam:"Static",loc:P.locs[0]?.id||"",chars:P.chars.map(c=>c.id),dur:5}));bdSave();bdRender()};
+$("bstyle2").onclick=()=>{const t=[P.style&&"STYLE: "+P.style,P.chars.length&&"CHARACTERS: "+P.chars.map(c=>`"${c.name}", ${c.desc}`).join(" "),
+P.locs.length&&"SETTING: "+P.locs.map(l=>`${l.name}: ${l.desc}`).join(" ")].filter(Boolean).join("\n");
+$("style").value=t;store("style",t);tab("studio")};
+function bdImg(it){if(it.img)return `<div class="img" onclick="lbox('${esc(it.img)}')"><img src="/outputs/${esc(it.img)}"></div>`;
+const j=it.job&&last.find(x=>x.id==it.job);return `<div class="img">${j?(j.status=="error"?"Gagal: "+esc(j.error).slice(0,140):"Memproses…"):"Belum ada gambar"}</div>`}
+function lbox(f){$("lbi").src="/outputs/"+f;$("lb").style.display="flex"}
+function bdRender(){for(const k of ["chars","locs"])$("g-"+k).innerHTML=P[k].map((it,i)=>`<div class="it">${bdImg(it)}
+<input placeholder="Nama" value="${esc(it.name)}" oninput="bdSet('${k}',${i},'name',this.value)">
+<textarea placeholder="${k=="chars"?"3 ciri fisik, pakaian, sifat":"tempat, waktu, suasana, properti"}" oninput="bdSet('${k}',${i},'desc',this.value)">${esc(it.desc)}</textarea>
+<div class="btns"><button onclick="bdGen('${k}',${i})">Generate gambar</button><button class="sec" onclick="bdDel('${k}',${i})" style="flex:0 0 auto;width:auto">Hapus</button></div></div>`).join("")||`<div class="hint">Belum ada. Klik "+ Tambah".</div>`;
+$("g-panels").innerHTML=P.panels.map((it,i)=>`<div class="it"><b>Panel ${i+1}</b>${bdImg(it)}
+<textarea placeholder="Aksi / apa yang terjadi" oninput="bdSet('panels',${i},'desc',this.value)">${esc(it.desc)}</textarea>
+<div class="row"><select onchange="bdSet('panels',${i},'shot',this.value)">${SHOTS.map(s=>`<option ${s==it.shot?"selected":""}>${s}</option>`).join("")}</select>
+<select onchange="bdSet('panels',${i},'cam',this.value)">${CAMS.map(s=>`<option ${s==it.cam?"selected":""}>${s}</option>`).join("")}</select></div>
+<div class="row"><select onchange="bdSet('panels',${i},'loc',this.value)"><option value="">(lokasi)</option>${P.locs.map(l=>`<option value="${l.id}" ${l.id==it.loc?"selected":""}>${esc(l.name||"tanpa nama")}</option>`).join("")}</select>
+<input type="number" min="1" max="15" value="${it.dur||5}" title="durasi (detik)" style="flex:0 0 64px" oninput="bdSet('panels',${i},'dur',+this.value)"></div>
+<div class="tags">${P.chars.map(c=>`<label><input type="checkbox" style="width:auto" ${(it.chars||[]).includes(c.id)?"checked":""} onchange="bdChar(${i},'${c.id}',this.checked)">${esc(c.name||"?")}</label>`).join("")}</div>
+<div class="btns"><button onclick="bdGen('panels',${i})">Sketsa</button><button class="sec" onclick="bdToStudio(${i})">Ke Studio</button>
+<button class="sec" onclick="bdMove(${i},-1)" style="flex:0 0 auto;width:auto" title="geser kiri">◀</button><button class="sec" onclick="bdMove(${i},1)" style="flex:0 0 auto;width:auto" title="geser kanan">▶</button>
+<button class="sec" onclick="bdDel('panels',${i})" style="flex:0 0 auto;width:auto">✕</button></div></div>`).join("")||`<div class="hint">Belum ada panel. Tulis beats bernomor di script lalu klik "Pecah beats", atau "+ Panel".</div>`}
+function bdSet(k,i,f,v){P[k][i][f]=v;bdSave()}
+function bdChar(i,id,on){const a=P.panels[i].chars=(P.panels[i].chars||[]).filter(x=>x!=id);if(on)a.push(id);bdSave()}
+function bdDel(k,i){if(!confirm("Hapus item ini?"))return;const id=P[k][i].id;P[k].splice(i,1);
+if(k!="panels")P.panels.forEach(p=>{if(p.loc==id)p.loc="";p.chars=(p.chars||[]).filter(x=>x!=id)});bdSave();bdRender()}
+function bdMove(i,d){const j=i+d;if(j<0||j>=P.panels.length)return;[P.panels[i],P.panels[j]]=[P.panels[j],P.panels[i]];bdSave();bdRender()}
+async function bdGen(k,i){const it=P[k][i];if(!$("bwf").value)return alert("Pilih workflow gambar.");if(!(it.desc||"").trim())return alert("Isi deskripsinya dulu.");
+const r=await api("/api/generate",{prompt:TPL[k](it,P),workflow:$("bwf").value,aspect:k=="chars"?"1:1":$("aspect").value||"9:16",resolution:"720p",duration:5,seed:-1});
+if(r.error)return alert(r.error);it.job=r.id;it.img="";bdSave();await poll();bdRender()}
+function bdJobs(jobs){let ch=false,wait=false;for(const k of ["chars","locs","panels"])for(const it of P[k]){if(!it.job||it.img)continue;const j=jobs.find(x=>x.id==it.job);
+if(j&&j.status=="done"&&j.file){it.img=j.file;ch=true}else if(j)wait=true}
+if(ch)bdSave();if((ch||wait)&&$("bd").style.display=="grid"&&!document.activeElement.closest?.(".it"))bdRender()}
+function bdToStudio(i){const it=P.panels[i];$("prompt").value=`${it.shot} shot, camera ${it.cam}. ${it.desc} ${scene(it,P,false)}`.trim();
+$("dur").value=it.dur||5;sync();tab("studio");$("prompt").focus()}
+init().then(()=>{bdList(store("pj"));if(store("tab")=="bd")tab("bd")});
 </script></body></html>
 """
 

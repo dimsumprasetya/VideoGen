@@ -4,7 +4,14 @@
     "note": "Jalan di GPU sendiri, tanpa kredit. Butuh ComfyUI terbaru + model MiniMax H3 (~40 GB) di folder models. Di VRAM 8 GB sangat lambat (offload ke RAM, disarankan RAM 64 GB). Aspek & resolusi dipakai, maks 768 px sisi pendek; durasi maks ~15 dtk.",
     "max_short": 768,
     "fps": 24, "frame_step": 17, "frame_offset": 5,
-    "timeout": 7200
+    "timeout": 7200,
+    "models": [
+      {"folder": "diffusion_models", "file": "minimax_h3_fl2va_pruned_int8_convrot.safetensors", "gb": 19.5, "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors"},
+      {"folder": "text_encoders", "file": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors", "gb": 14.6, "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"},
+      {"folder": "vae", "file": "minimax_h3_video_vae_int8_convrot.safetensors", "gb": 2.6, "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_video_vae_int8_convrot.safetensors"},
+      {"folder": "vae", "file": "minimax_h3_audio_vae_fp32.safetensors", "gb": 0.6, "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_audio_vae_fp32.safetensors"},
+      {"folder": "loras", "file": "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors", "gb": 1.8, "url": "https://huggingface.co/lightx2v/Minimax-h3-Turbo/resolve/main/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors"}
+    ]
   },
   "1": {"class_type": "UNETLoader", "inputs": {"unet_name": "minimax_h3_fl2va_pruned_int8_convrot.safetensors", "weight_dtype": "default"}},
   "2": {"class_type": "CLIPLoader", "inputs": {"clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors", "type": "minimax", "device": "default"}},

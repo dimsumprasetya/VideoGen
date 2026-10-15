@@ -238,6 +238,77 @@ def custom_graph(name, p):
     return graph
 
 
+# ---------------------------------------------------------------- model lokal (cek & unduh)
+DL = {"active": False, "file": "", "done": 0, "total": 0, "error": "", "finished": []}
+
+
+def model_status(base, meta):
+    """Daftar model workflow (dari _studio.models) + apakah sudah ada di ComfyUI. None bila tidak bisa dicek."""
+    want = meta.get("models") or []
+    if not want or not base:
+        return None
+    have = {}
+    out = []
+    for m in want:
+        f = m["folder"]
+        if f not in have:
+            try:
+                have[f] = {os.path.basename(x.replace("\\", "/")) for x in http_json(base + "/models/" + f, timeout=10)}
+            except Exception:
+                return None
+        out.append(dict(m, present=m["file"] in have[f]))
+    return out
+
+
+def model_dir(base, folder):
+    """Folder tujuan unduhan: path pertama yang dipakai ComfyUI, cadangan <comfy_cwd>/ComfyUI/models/<folder>."""
+    try:
+        paths = http_json(base + "/internal/folder_paths", timeout=10).get(folder)
+        if paths:
+            return paths[0] if isinstance(paths[0], str) else paths[0][0]
+    except Exception:
+        pass
+    cwd = CFG.get("comfy_cwd") or ""
+    for root in (os.path.join(cwd, "ComfyUI", "models"), os.path.join(cwd, "models")):
+        if cwd and os.path.isdir(root):
+            return os.path.join(root, folder)
+    raise RuntimeError("Folder models ComfyUI tidak ditemukan. Unduh manual (lihat workflows/README.md).")
+
+
+def download_models(base, models):
+    DL.update(active=True, error="", finished=[])
+    try:
+        for m in models:
+            d = model_dir(base, m["folder"])
+            os.makedirs(d, exist_ok=True)
+            dst = os.path.join(d, m["file"])
+            if os.path.exists(dst):
+                continue
+            part = dst + ".part"
+            have = os.path.getsize(part) if os.path.exists(part) else 0
+            req = urllib.request.Request(m["url"], headers={"User-Agent": "SeedanceStudio"})
+            if have:
+                req.add_header("Range", "bytes=%d-" % have)  # lanjutkan unduhan yang terputus
+            with urllib.request.urlopen(req, timeout=60) as r:
+                if have and r.status != 206:
+                    have = 0
+                total = have + int(r.headers.get("Content-Length") or 0)
+                DL.update(file=m["file"], done=have, total=total)
+                with open(part, "ab" if have else "wb") as f:
+                    while True:
+                        chunk = r.read(1 << 20)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        DL["done"] += len(chunk)
+            os.replace(part, dst)
+            DL["finished"].append(m["file"])
+    except Exception as e:
+        DL["error"] = "Unduh %s gagal: %s (klik Unduh lagi untuk melanjutkan)" % (DL["file"], e)
+    finally:
+        DL.update(active=False, file="")
+
+
 def find_videos(outputs):
     """File hasil: video lebih dulu, gambar bila workflow hanya menghasilkan gambar."""
     vids, imgs = [], []
@@ -259,6 +330,10 @@ def run_job(job):
         if not base:
             raise RuntimeError("ComfyUI belum menyala. Tunggu sebentar atau cek studio.log.")
         p = job["params"]
+        if p.get("workflow"):
+            missing = [m["file"] for m in (model_status(base, wf_meta(p["workflow"])) or []) if not m["present"]]
+            if missing:
+                raise RuntimeError("Model belum ada di ComfyUI: %s -> Klik 'Unduh model yang kurang'." % ", ".join(missing))
         graph = custom_graph(p["workflow"], p) if p.get("workflow") else build_graph(p, node_spec(base))
         job["status"] = "queued"
         try:
@@ -438,6 +513,10 @@ class H(BaseHTTPRequestHandler):
         elif u.path == "/api/comfy/detect":
             cmd, cwd = comfy_detect.detect(CFG)
             self.send_json({"found": bool(cmd), "cmd": cmd or "", "cwd": cwd or ""})
+        elif u.path == "/api/models":
+            wf = os.path.basename(parse_qs(u.query).get("workflow", [""])[0])
+            ms = model_status(comfy_url(), wf_meta(wf)) if wf else None
+            self.send_json({"models": ms, "dl": DL})
         elif u.path == "/api/jobs":
             with LOCK:
                 jobs = sorted(JOBS.values(), key=lambda j: j["created"], reverse=True)
@@ -510,6 +589,15 @@ class H(BaseHTTPRequestHandler):
                     raise RuntimeError("ComfyUI tidak ditemukan di lokasi itu. Pilih ComfyUI.exe atau folder yang berisi main.py.")
                 save_cfg(comfy_cmd=r[0], comfy_cwd=r[1] or "")
                 self.send_json({"cmd": r[0], "cwd": r[1] or ""})
+            elif self.path == "/api/models/download":
+                base = comfy_url()
+                ms = model_status(base, wf_meta(os.path.basename(d.get("workflow", ""))))
+                if ms is None:
+                    raise RuntimeError("ComfyUI belum menyala, atau workflow ini tidak punya daftar model.")
+                todo = [m for m in ms if not m["present"]]
+                if todo and not DL["active"]:
+                    threading.Thread(target=download_models, args=(base, todo), daemon=True).start()
+                self.send_json({"started": bool(todo)})
             elif self.path == "/api/apikey":
                 k = str(d.get("key", "")).strip()
                 if k:
@@ -575,6 +663,8 @@ footer{border-top:1px solid var(--line);background:var(--panel);display:flex;gap
 <button id="cfind" style="margin-top:8px">Cari &amp; sambungkan</button><div id="cmsg" style="font-size:12px;margin-top:6px;color:var(--mut)"></div><pre id="clog" style="font-size:11px;color:var(--mut);white-space:pre-wrap;margin:6px 0 0"></pre></div>
 <label>Workflow</label><select id="wf"><option value="">Seedance cloud (bayar kredit Comfy)</option></select>
 <div id="wfnote" style="font-size:12px;color:var(--mut);margin-top:4px"></div>
+<div id="mdl" style="display:none;font-size:12px;word-break:break-all;margin-top:6px;background:#0e0f12;border:1px solid var(--line);border-radius:8px;padding:8px"><div id="mlist"></div>
+<button class="sec" id="mdown" style="display:none">Unduh model yang kurang</button><div id="mprog" style="color:var(--mut);margin-top:4px"></div></div>
 <label>Gaya &amp; karakter (tetap untuk semua scene, opsional)</label><textarea id="style" style="height:70px" placeholder="STYLE: animasi 3D lucu… CHARACTERS: &quot;Kiko&quot;, bayi panda merah… SETTING: …"></textarea>
 <label>Scene / prompt</label><textarea id="prompt" placeholder="Seekor kucing oranye berlari di atap kota saat senja, kamera mengikuti, sinematik"></textarea>
 <div id="sdw"><label>Model</label><select id="model"></select></div>
@@ -600,7 +690,7 @@ function sync(){const m=mdl(),w=$("wf").value,info=(cfg.workflows||[]).find(x=>x
 if(+$("dur").value<+$("dur").min)$("dur").value=$("dur").min;if(+$("dur").value>+$("dur").max)$("dur").value=$("dur").max;$("dv").textContent=$("dur").value;
 $("sdw").style.display=$("camw").style.display=w?"none":"";$("audw").style.display=!w&&m.audio?"flex":"none";$("wfnote").textContent=info?info.note:"Butuh API key + kredit akun Comfy."}
 async function init(){$("style").value=store("style");$("style").oninput=()=>store("style",$("style").value);await fill();
-$("model").onchange=$("dur").oninput=sync;$("wf").onchange=()=>{store("wf",$("wf").value);sync()};poll();setInterval(poll,2000);status();setInterval(status,5000)}
+$("model").onchange=$("dur").oninput=sync;$("wf").onchange=()=>{store("wf",$("wf").value);sync();models().catch(()=>{})};poll();setInterval(poll,2000);status();setInterval(status,5000)}
 async function fill(){cfg=await api("/api/config");const cur=$("model").value;
 $("model").innerHTML=cfg.models.map(m=>`<option value="${m.id}">${m.label}</option>`).join("");
 $("aspect").innerHTML=cfg.aspects.map(a=>`<option ${a=="9:16"?"selected":""}>${a}</option>`).join("");
@@ -608,7 +698,15 @@ $("res").innerHTML=cfg.resolutions.map(a=>`<option ${a=="720p"?"selected":""}>${
 if(cur&&cfg.models.some(m=>m.id==cur))$("model").value=cur;const wv=$("wf").value||store("wf");$("wf").length=1;
 cfg.workflows.forEach(w=>{const o=document.createElement("option");o.value=w.file;o.textContent=w.label;$("wf").appendChild(o)});
 if(cfg.workflows.some(w=>w.file==wv))$("wf").value=wv;sync()}
-async function status(){try{const s=await api("/api/status");$("st").textContent=s.comfy?"ComfyUI aktif":"ComfyUI mati";$("st").className="chip"+(s.comfy?" ok":"");$("setup").style.display=s.comfy?"none":"block";$("clog").textContent=s.log||"";$("kst").textContent=s.has_key?"(tersimpan)":"(belum diisi)";if(s.comfy&&!cfg.live)fill();$("merge").dataset.ff=s.ffmpeg?1:""}catch(e){}}
+async function models(){const w=$("wf").value;if(!w){$("mdl").style.display="none";return}
+const r=await api("/api/models?workflow="+encodeURIComponent(w)),d=r.dl;$("mdl").style.display="block";
+if(!r.models){$("mlist").textContent="Status model belum bisa dicek (ComfyUI mati?).";$("mdown").style.display="none"}
+else{const miss=r.models.filter(m=>!m.present),gb=miss.reduce((a,m)=>a+(m.gb||0),0);
+$("mlist").innerHTML=r.models.map(m=>`<div style="color:${m.present?"#4ade80":"#f87171"}">${m.present?"✓":"✗"} ${m.folder}/${m.file}${m.gb?" ("+m.gb+" GB)":""}</div>`).join("");
+$("mdown").style.display=miss.length&&!d.active?"block":"none";$("mdown").textContent=`Unduh model yang kurang (~${gb.toFixed(1)} GB)`}
+$("mprog").textContent=d.active?`Mengunduh ${d.file}: ${(d.done/1e9).toFixed(2)} / ${(d.total/1e9).toFixed(2)} GB`:(d.error||"")}
+$("mdown").onclick=async()=>{const r=await api("/api/models/download",{workflow:$("wf").value});if(r.error)alert(r.error);models()};
+async function status(){models().catch(()=>{});try{const s=await api("/api/status");$("st").textContent=s.comfy?"ComfyUI aktif":"ComfyUI mati";$("st").className="chip"+(s.comfy?" ok":"");$("setup").style.display=s.comfy?"none":"block";$("clog").textContent=s.log||"";$("kst").textContent=s.has_key?"(tersimpan)":"(belum diisi)";if(s.comfy&&!cfg.live)fill();$("merge").dataset.ff=s.ffmpeg?1:""}catch(e){}}
 $("cfind").onclick=async()=>{$("cmsg").textContent="Mencari…";const r=await api("/api/comfy/save",{path:$("cpath").value});
 $("cmsg").textContent=r.error?r.error:"Tersimpan. Menyalakan ComfyUI, tunggu sebentar…"};
 $("ksave").onclick=async()=>{const r=await api("/api/apikey",{key:$("key").value});$("key").value="";$("kst").textContent=r.has_key?"(tersimpan)":"(belum diisi)"};

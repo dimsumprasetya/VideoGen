@@ -3,6 +3,7 @@ Ollama: https://ollama.com  (API http://127.0.0.1:11434)."""
 import json, re, threading, urllib.error, urllib.request
 
 RECOMMENDED = "qwen3:8b"   # ~5 GB, muat di VRAM 8 GB, bagus untuk bahasa Indonesia
+ALTERNATIVES = ["qwen2.5:7b", "gemma3:4b", "llama3.2:3b"]  # cadangan bila qwen3 gagal (mis. Ollama versi lama)
 _DIRECT = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # Ollama lokal: jangan lewat proxy sistem
 PULL = {"active": False, "model": "", "status": "", "done": 0, "total": 0, "error": ""}
 
@@ -20,7 +21,13 @@ def status(base):
     try:
         with _req(base + "/api/tags", timeout=3) as r:
             tags = json.loads(r.read().decode())
-        return {"ok": True, "models": [m["name"] for m in tags.get("models", [])]}
+        out = {"ok": True, "models": [m["name"] for m in tags.get("models", [])], "version": ""}
+        try:
+            with _req(base + "/api/version", timeout=3) as r:
+                out["version"] = json.loads(r.read().decode()).get("version", "")
+        except Exception:
+            pass
+        return out
     except Exception:
         return {"ok": False, "models": []}
 
@@ -48,7 +55,16 @@ def _pull(base, model):
                 PULL.update(status=ev.get("status", ""), done=ev.get("completed", PULL["done"]),
                             total=ev.get("total", PULL["total"]))
     except Exception as e:
-        PULL["error"] = ("Unduh model gagal: %s. Coba lewat Command Prompt: ollama pull %s" % (e, model))
+        msg = str(e)
+        hint = "Coba lewat Command Prompt: ollama pull %s" % model
+        low = msg.lower()
+        if "manifest" in low or "not found" in low or "does not exist" in low or "newer version" in low:
+            hint = "Model tidak dikenal oleh Ollama ini: update Ollama dari ollama.com, atau pilih model lain (mis. qwen2.5:7b)."
+        elif "space" in low or "disk" in low:
+            hint = "Ruang disk tidak cukup (butuh ~6 GB di drive C:)."
+        elif "timed out" in low or "connection" in low or "reset" in low or "eof" in low:
+            hint = "Koneksi internet terputus. Klik Unduh lagi; Ollama melanjutkan dari posisi terakhir."
+        PULL["error"] = "Unduh %s gagal: %s -> %s" % (model, msg[:200], hint)
     finally:
         PULL["active"] = False
 

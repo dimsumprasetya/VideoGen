@@ -564,7 +564,7 @@ class H(BaseHTTPRequestHandler):
         elif u.path == "/api/llm/status":
             st = llm.status(llm_base())
             st.update(model=llm.pick_model(llm_base(), CFG.get("llm_model", "")) if st["ok"] else "",
-                      recommended=llm.RECOMMENDED, pull=llm.PULL, url=llm_base())
+                      recommended=llm.RECOMMENDED, alternatives=llm.ALTERNATIVES, pull=llm.PULL, url=llm_base())
             self.send_json(st)
         elif u.path == "/api/jobs":
             with LOCK:
@@ -944,14 +944,19 @@ $("dur").value=it.dur||5;sync();tab("prod");$("prompt").focus()}
 let LLM={};
 async function llmStatus(){try{LLM=await api("/api/llm/status")}catch(e){LLM={}}const pl=LLM.pull||{};let h;
 if(!LLM.ok)h=`<b style="color:#f87171">Ollama belum menyala</b><br>Penulis ide/script memakai Ollama (gratis, lokal). Pasang dari <b>ollama.com</b>, jalankan, lalu tunggu beberapa detik.`;
-else if(!LLM.models.length)h=`<b>Ollama aktif, belum ada model.</b><br><button class="sec" onclick="llmPull()">Unduh ${LLM.recommended} (~5 GB)</button>`;
+else if(!LLM.models.length)h=`<b>Ollama aktif${LLM.version?" (v"+esc(LLM.version)+")":""}, belum ada model.</b><br><button class="sec" onclick="llmPull()">Unduh ${LLM.recommended} (~5 GB)</button>`;
 else h=`<b style="color:#4ade80">Ollama aktif</b> · model <select onchange="llmModel(this.value)">${LLM.models.map(m=>`<option ${m==LLM.model?"selected":""}>${esc(m)}</option>`).join("")}</select>`+
 (LLM.models.some(m=>m.startsWith("qwen3"))?"":`<br><button class="sec" onclick="llmPull()">Unduh ${LLM.recommended} (disarankan)</button>`);
 if(pl.active)h=h.replace(/<button[^>]*onclick="llmPull\(\)"[^>]*>.*?<\/button>/,"")+`<br>Mengunduh ${esc(pl.model)}: ${esc(pl.status)} ${pl.total?Math.round(100*pl.done/pl.total)+"% ("+(pl.done/1e9).toFixed(2)+" / "+(pl.total/1e9).toFixed(2)+" GB)":""}`;
 else if(pl.model&&!pl.error&&LLM.models.includes(pl.model))h+=`<br><span style="color:#4ade80">${esc(pl.model)} selesai diunduh.</span>`;else if(pl.error)h+=`<br><span style="color:#f87171">${esc(pl.error)}</span>`;
+if(LLM.ok&&!pl.active)h+=`<details style="margin-top:6px"><summary class="hint" style="cursor:pointer">Model lain / unduh manual</summary>
+<div class="row" style="margin-top:6px"><input class="llmname" list="llmalt" value="${esc(LLM.recommended)}" style="width:100%;background:#16181d;color:var(--tx);border:1px solid var(--line);border-radius:6px;padding:5px">
+<button class="sec" style="flex:0 0 auto;width:auto;margin:0;padding:5px 10px" onclick="llmPull(this.previousElementSibling.value)">Unduh</button></div>
+<datalist id="llmalt">${[LLM.recommended,...(LLM.alternatives||[])].map(m=>`<option value="${esc(m)}">`).join("")}</datalist>
+<div class="hint" style="margin-top:4px">Atau di Command Prompt: <code>ollama pull ${esc(LLM.recommended)}</code>. Masalah? Jalankan <b>cek-ollama.bat</b> dan kirim hasilnya.</div></details>`;
 $("llmbox1").innerHTML=$("llmbox2").innerHTML=h;if(pl.active)setTimeout(llmStatus,2000)}
-async function llmPull(){document.querySelectorAll(".llm button").forEach(x=>{x.disabled=true;x.textContent="Memulai unduhan…"});
-try{const r=await api("/api/llm/pull",{model:LLM.recommended});if(r.error)alert(r.error)}catch(e){alert("Gagal menghubungi aplikasi: "+e.message)}llmStatus()}
+async function llmPull(name){name=(typeof name=="string"&&name.trim())||LLM.recommended;document.querySelectorAll(".llm button").forEach(x=>{x.disabled=true;x.textContent="Memulai unduhan…"});
+try{const r=await api("/api/llm/pull",{model:name});if(r.error)alert(r.error)}catch(e){alert("Gagal menghubungi aplikasi: "+e.message)}llmStatus()}
 async function llmModel(m){await api("/api/llm/model",{model:m});llmStatus()}
 async function llmRun(btn,msg,body){const old=btn.textContent;btn.disabled=true;btn.textContent="Menulis… (bisa 1-3 menit)";$(msg).textContent="";
 try{const r=await api("/api/llm/run",body);if(r.error)throw new Error(r.error);$(msg).textContent="Ditulis oleh "+r._model+(r._warn?" · ⚠ "+r._warn:"");return r}

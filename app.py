@@ -506,6 +506,8 @@ def first_source(job):
         time.sleep(1)
         WORK.put(job)
         return None
+    if dep["status"] == "cancelled":
+        raise RuntimeError("Scene sebelumnya dibatalkan, jadi scene ini tidak bisa disambung. Buat scene sebelumnya lagi, atau pilih 'Teks saja'.")
     if dep["status"] != "done" or not dep.get("file"):
         raise RuntimeError("Scene sebelumnya gagal dibuat, jadi scene ini tidak bisa disambung. Ulangi scene sebelumnya dulu.")
     return dep["file"]
@@ -515,7 +517,12 @@ def run_job(job):
     prog = None
     job["started"] = time.time()
     job["progress"] = {"pct": 0, "stage": "Menyiapkan"}
+
+    def chk():
+        if job.get("cancel"):
+            raise Cancelled()
     try:
+        chk()
         base = comfy_url()
         if not base:
             raise RuntimeError("ComfyUI belum menyala. Tunggu sebentar atau cek studio.log.")
@@ -530,6 +537,7 @@ def run_job(job):
             src = first_source(job)
             if src is None:
                 return
+            chk()
             if p.get("workflow") and not wf_meta(p["workflow"]).get("first_frame"):
                 job["note"] = "Workflow ini tidak menerima frame pertama; dibuat dari teks saja."
             else:
@@ -569,13 +577,21 @@ def run_job(job):
                 msg += " -> Node/model belum terpasang. Update ComfyUI dan unduh file model ke folder models (lihat catatan workflow)."
             raise RuntimeError("ComfyUI menolak workflow: " + msg[:800])
         pid = res["prompt_id"]
+        job["prompt_id"] = pid
         if prog:
             prog.pid = pid
         job["status"] = "running"
+        if job.get("cancel"):  # dibatalkan selagi dikirim
+            _stop_comfy(job)
+            raise Cancelled()
         timeout = wf_meta(p["workflow"]).get("timeout") if p.get("workflow") else None
         deadline = time.time() + max(CFG["job_timeout_seconds"], int(timeout or 0))
         while time.time() < deadline:
-            time.sleep(CFG["poll_seconds"])
+            for _ in range(max(1, int(CFG["poll_seconds"] * 4))):  # tidur pendek: batal terasa cepat
+                if job.get("cancel"):
+                    break
+                time.sleep(0.25)
+            chk()
             h = http_json(base + "/history/" + pid, timeout=15).get(pid)
             if not h:
                 if job["progress"].get("pct", 0) <= 1:  # belum ada event: masih antre di ComfyUI (mis. dipakai aplikasi lain)?
@@ -617,7 +633,12 @@ def run_job(job):
         except Exception:
             pass
         raise RuntimeError("Timeout menunggu hasil dari ComfyUI (job dibatalkan).")
+    except Cancelled:
+        job.update(status="cancelled", error="Dibatalkan.", progress={"pct": 0, "stage": "Dibatalkan"})
     except Exception as e:
+        if job.get("cancel"):  # error akibat interrupt: tetap dianggap batal
+            job.update(status="cancelled", error="Dibatalkan.", progress={"pct": 0, "stage": "Dibatalkan"})
+            return
         msg = str(e)
         low = msg.lower()
         if any(w in low for w in ("unauthorized", "login", "api key", "401", "authenticat")):
@@ -631,11 +652,59 @@ def run_job(job):
             prog.close()
 
 
+class Cancelled(Exception):
+    pass
+
+
+PROCS = {}  # id job render -> proses ffmpeg (untuk dimatikan saat dibatalkan)
+
+
+def _stop_comfy(job):
+    """Hentikan prompt job ini di ComfyUI: hapus dari antrean, dan interrupt HANYA bila job kita yang sedang jalan
+    (jangan mematikan pekerjaan aplikasi lain yang memakai ComfyUI yang sama)."""
+    pid, base = job.get("prompt_id"), comfy_url()
+    if not pid or not base:
+        return
+    try:
+        q = http_json(base + "/queue", timeout=5)
+        running = any(len(x) > 1 and x[1] == pid for x in q.get("queue_running", []))
+        if not running:
+            http_json(base + "/queue", {"delete": [pid]}, timeout=5)
+        else:
+            http_json(base + "/interrupt", {"prompt_id": pid}, timeout=5)
+    except Exception:
+        pass
+
+
+def cancel_job(jid):
+    """Batalkan job: antre -> dilewati worker; berjalan -> ComfyUI di-interrupt / ffmpeg dimatikan.
+    True bila ada yang dibatalkan."""
+    job = JOBS.get(jid)
+    if not job or job["status"] not in ("queued", "running"):
+        return False
+    job["cancel"] = True
+    job["progress"] = {"pct": job.get("progress", {}).get("pct", 0), "stage": "Membatalkan"}
+    p = PROCS.get(jid)
+    if p:  # render ffmpeg
+        try:
+            p.kill()
+        except OSError:
+            pass
+    elif job.get("prompt_id"):  # sudah dikirim ke ComfyUI
+        threading.Thread(target=_stop_comfy, args=(job,), daemon=True).start()
+    if not job.get("started"):  # masih antre lokal: langsung ditandai, worker akan melewatinya
+        job.update(status="cancelled", error="Dibatalkan.", progress={"pct": 0, "stage": "Dibatalkan"})
+    return True
+
+
 def worker():
     while True:
         job = WORK.get()
         try:
-            run_job(job)
+            if job.get("cancel") or job["status"] == "cancelled":
+                job.update(status="cancelled", error="Dibatalkan.", progress={"pct": 0, "stage": "Dibatalkan"})
+            else:
+                run_job(job)
         finally:
             WORK.task_done()
 
@@ -831,7 +900,8 @@ def start_render(d):
     spec = {"clips": clips, "transition": d.get("transition", "cut"), "fade": d.get("fade", 0.5),
             "clip_audio": bool(d.get("clip_audio", True)), "clip_vol": float(d.get("clip_vol", 1)),
             "music": out_path(d["music"]) if d.get("music") else "", "music_vol": float(d.get("music_vol", 0.3)), "duck": bool(d.get("duck", True)),
-            "subtitles": bool(d.get("subtitles")), "out": os.path.join(OUT, name)}
+            "subtitles": bool(d.get("subtitles")), "out": os.path.join(OUT, name),
+            "cancelled": lambda: job.get("cancel")}
     job = {"id": uuid.uuid4().hex, "params": {"prompt": "Render final (%d klip)" % len(clips), "kind": "render",
            "ref": str(d.get("ref", ""))[:80]}, "status": "running", "file": "", "error": "", "created": time.time()}
     with LOCK:
@@ -843,13 +913,24 @@ def start_render(d):
         job["progress"] = {"pct": 0, "stage": "Menyiapkan klip"}
         try:
             os.makedirs(OUT, exist_ok=True)
-            render.render(spec, progress=lambda pct: job.update(progress={"pct": pct, "stage": "Merender"}))
+            render.render(spec, progress=lambda pct: job.update(progress={"pct": pct, "stage": "Merender"}),
+                          on_proc=lambda p: (PROCS.__setitem__(job["id"], p), job.get("cancel") and p.kill()))
+            if job.get("cancel"):
+                raise Cancelled()
             job["progress"] = {"pct": 100, "stage": "Selesai"}
             job.update(file=name, status="done")
             save_meta(job)
         except Exception as e:
-            job.update(status="error", error=str(e))
+            if job.get("cancel") or isinstance(e, Cancelled):
+                job.update(status="cancelled", error="Dibatalkan.", progress={"pct": 0, "stage": "Dibatalkan"})
+                try:
+                    os.remove(os.path.join(OUT, name))
+                except OSError:
+                    pass
+            else:
+                job.update(status="error", error=str(e))
         finally:
+            PROCS.pop(job["id"], None)
             BUSY["render"] -= 1
     threading.Thread(target=go, daemon=True).start()
     return job
@@ -1173,6 +1254,16 @@ class H(BaseHTTPRequestHandler):
             if self.path == "/api/jobs/query":  # polling UI: hanya job yang ditunggu proyek ini + yang sedang aktif
                 ids = set(map(str, d.get("ids") or []))
                 return self.send_json(jobs_view(lambda j: j["id"] in ids or j["status"] in ("queued", "running")))
+            if self.path == "/api/cancel":  # {id} | {ids:[]} | {all:true} ; {llm:true} menghentikan penulisan AI
+                ids = [str(x) for x in (d.get("ids") or [])] + ([str(d["id"])] if d.get("id") else [])
+                if d.get("all"):
+                    with LOCK:
+                        ids = [k for k, j in JOBS.items() if j["status"] in ("queued", "running")]
+                n = sum(1 for k in ids if cancel_job(k))
+                if (d.get("llm") or d.get("all")) and llm.PROG.get("active"):
+                    llm.CANCEL["on"] = True
+                    n += 1
+                return self.send_json({"ok": True, "cancelled": n})
             if self.path == "/api/render":
                 self.send_json(start_render(d))
             elif self.path == "/api/update/check":

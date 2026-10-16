@@ -39,7 +39,11 @@ def build(job, tmpdir):
     clips = job["clips"]
     if not clips:
         raise RuntimeError("Belum ada klip terpilih.")
-    infos = [probe(c["path"]) for c in clips]
+    infos = []
+    for c in clips:
+        if job.get("cancelled") and job["cancelled"]():  # dibatalkan saat menyiapkan klip
+            raise RuntimeError("Dibatalkan")
+        infos.append(probe(c["path"]))
     W = infos[0]["width"] or 720
     H = infos[0]["height"] or 1280
     W, H = W // 2 * 2, H // 2 * 2
@@ -138,8 +142,9 @@ def build(job, tmpdir):
     return cmd, total
 
 
-def render(job, progress=None):
-    """progress(pct) dipanggil selama ffmpeg berjalan (dari -progress: waktu yang sudah dirender / durasi total)."""
+def render(job, progress=None, on_proc=None):
+    """progress(pct) dipanggil selama ffmpeg berjalan (dari -progress: waktu yang sudah dirender / durasi total).
+    on_proc(proses) dipanggil begitu ffmpeg mulai (supaya bisa dimatikan dari luar saat dibatalkan)."""
     if not shutil.which("ffmpeg"):
         raise RuntimeError("ffmpeg tidak ditemukan di PATH.")
     tmp = tempfile.mkdtemp(prefix="studio-render-")
@@ -148,6 +153,8 @@ def render(job, progress=None):
         cmd = cmd[:-1] + ["-progress", "pipe:1", "-nostats", cmd[-1]]
         with open(os.path.join(tmp, "ffmpeg-err.txt"), "w+b") as err:
             p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=err, creationflags=NOWIN)
+            if on_proc:
+                on_proc(p)
             for line in p.stdout:
                 key, _, val = line.decode(errors="replace").strip().partition("=")
                 if key in ("out_time_us", "out_time_ms") and progress and total:

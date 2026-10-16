@@ -8,6 +8,7 @@ RECOMMENDED = "qwen3:8b"   # ~5 GB, muat di VRAM 8 GB, bagus untuk bahasa Indone
 ALTERNATIVES = ["qwen2.5:7b", "gemma3:4b", "llama3.2:3b"]  # cadangan bila qwen3 gagal (mis. Ollama versi lama)
 _DIRECT = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # Ollama lokal: jangan lewat proxy sistem
 PROG = {"active": False, "task": "", "stage": "", "tokens": 0, "est": 0, "pct": 0}  # progres penulisan saat ini
+CANCEL = {"on": False}  # diset dari /api/cancel: hentikan penulisan yang sedang berjalan
 PULL = {"active": False, "model": "", "status": "", "done": 0, "total": 0, "error": ""}
 
 
@@ -103,6 +104,7 @@ def chat_json(base, model, system, user, schema, keep_alive="2m", timeout=900, e
     body = {"model": model, "stream": True, "format": schema, "keep_alive": keep_alive, "think": False,
             "options": {"temperature": 0.8, "num_ctx": _ctx(system + user, est)},
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
+    CANCEL["on"] = False
     PROG.update(active=True, task=task, stage="Memuat model AI", tokens=0, est=max(50, int(est)), pct=0)
     try:
         return _chat(base, body, timeout)
@@ -116,6 +118,8 @@ def _chat(base, body, timeout):
             text = []
             with _req(base + "/api/chat", body, timeout=timeout) as r:
                 for line in r:
+                    if CANCEL["on"]:  # keluar dari with: koneksi ditutup, Ollama berhenti menulis
+                        raise RuntimeError("Dibatalkan")
                     if not line.strip():
                         continue
                     ev = json.loads(line.decode())

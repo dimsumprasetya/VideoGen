@@ -71,6 +71,8 @@ nav a,nav select,nav button{flex-shrink:0}
 .beat{font-size:11px;padding:1px 8px;border-radius:99px;background:#262932;color:var(--tx);font-weight:600;margin-left:6px;white-space:nowrap}
 .beat.a1{background:#13283a}.beat.a2{background:#2e1f12}.beat.a3{background:#16301d}
 .trl{font-size:11px;color:var(--mut);margin:-4px 0 10px 16px;border-left:2px dashed #3a3f4b;padding:2px 0 2px 10px}.trl b{color:var(--tx);font-weight:600}
+button.cx{width:auto;margin:4px 0 0;padding:2px 9px;font-size:11px;min-height:0;background:#3a1f1f;color:#fca5a5;border:1px solid #5a2b2b}button.cx:hover{background:#4a2525}
+#act{cursor:pointer}#act:hover{background:#3a2412}
 .sfr{display:flex;gap:8px;align-items:center}.sfr img{width:44px;aspect-ratio:9/16;object-fit:cover;border-radius:5px;background:#000;cursor:pointer;flex:0 0 auto}.sst{font-size:12px}
 .cw{grid-column:1/-1;font-size:12px;color:var(--warn)}.cw:empty{display:none}.chkbox{margin-top:10px;font-size:12px}.chkbox div{margin-top:4px;color:var(--warn)}.chkbox .hint{color:var(--mut)}
 .guide{margin-top:12px;font-size:12px;color:var(--mut)}.guide summary{cursor:pointer;color:var(--tx)}.guide ul{margin:4px 0 8px;padding-left:18px}.guide b{color:var(--tx)}
@@ -327,8 +329,8 @@ try{js=await api("/api/jobs/query",{ids});if(Array.isArray(js)&&P===pj)pollApply
 finally{const act=Array.isArray(js)&&js.some(j=>j.status=="queued"||j.status=="running");pollSoon(act||waitIds().length?2000:6000)}}  // sibuk 2 dtk, diam 6 dtk
 function pollApply(js,t0){JM={};js.forEach(j=>JM[j.id]=j);const first=!polled;polled=true;
 let ch=false;const fix=(o,fk="img")=>{if(!o||!o.job||o[fk]||o.error)return;const j=JM[o.job];
-if(j&&j.status=="done"&&j.file){o[fk]=j.file;if(j.first_used)o.from=j.first_used;if(j.note)o.note=j.note;ch=true}else if(j&&j.status=="error"){o.error=j.error;ch=true}else if(!j&&!first&&(o.t||0)<t0-2000){o.error="Job hilang (aplikasi sempat restart). Ulangi.";ch=true}};
-P.chars.forEach(x=>fix(x));P.locs.forEach(x=>fix(x));Object.values(P.styleThumbs||{}).forEach(x=>fix(x));P.scenes.forEach(s=>{fix(s.sketch);s.takes.forEach(t=>{fix(t,"file");if(t.file&&!s.take){s.take=t.file}})});
+if(j&&j.status=="cancelled"){o.job="";o._x=1;ch=true}else if(j&&j.status=="done"&&j.file){o[fk]=j.file;if(j.first_used)o.from=j.first_used;if(j.note)o.note=j.note;ch=true}else if(j&&j.status=="error"){o.error=j.error;ch=true}else if(!j&&!first&&(o.t||0)<t0-2000){o.error="Job hilang (aplikasi sempat restart). Ulangi.";ch=true}};
+P.chars.forEach(x=>fix(x));P.locs.forEach(x=>fix(x));Object.values(P.styleThumbs||{}).forEach(x=>fix(x));P.scenes.forEach(s=>{fix(s.sketch);s.takes.forEach(t=>{fix(t,"file");if(t.file&&!s.take){s.take=t.file}});if(s.takes.some(t=>t._x))s.takes=s.takes.filter(t=>!t._x)});
 const E=P.edit,lost=(id,t)=>id&&!JM[id]&&!first&&(t||0)<t0-2000;
 if(lost(E.mjob,E.mt)){E.mjob="";$("e-mmsg").textContent="Job musik hilang (aplikasi sempat restart). Ulangi.";ch=true}
 if(lost(E.rjob,E.rt)){E.rjob="";$("e-msg").textContent="Render terputus (aplikasi sempat restart). Ulangi.";ch=true}
@@ -336,17 +338,28 @@ if(E.mjob&&!E.music&&JM[E.mjob]?.status=="done"){E.music=JM[E.mjob].file;E.audio
 if(E.rjob&&JM[E.rjob]?.status=="done"){E.final=JM[E.rjob].file;E.rjob="";$("e-msg").textContent="Selesai. Video final ada di atas.";ch=true}else if(E.rjob&&JM[E.rjob]?.status=="error"){$("e-msg").textContent=JM[E.rjob].error;E.rjob="";ch=true}
 const q=js.filter(j=>j.status=="queued"||j.status=="running");$("v-q").textContent=q.length?`${q.length} job di antrean (dikerjakan satu per satu).`:"";
 if(ch){save();needRender=true}if(needRender&&!typing()){needRender=false;renderTab(TAB)}else{updateJobSpans();syncButtons()}actChip()}
+/* ---------------- batal: hentikan di server, lalu lepas dari item proyek */
+function dropJobs(ids){ids=new Set(ids);const z=o=>{if(o&&ids.has(o.job)){o.job="";o.error=""}};
+P.chars.forEach(z);P.locs.forEach(z);Object.values(P.styleThumbs||{}).forEach(z);
+P.scenes.forEach(s=>{z(s.sketch);s.takes=s.takes.filter(t=>!ids.has(t.job)||t.file)});
+const E=P.edit;if(ids.has(E.mjob)){E.mjob="";$("e-mmsg").textContent="Pembuatan musik dibatalkan."}if(ids.has(E.rjob)){E.rjob="";$("e-msg").textContent="Render dibatalkan."}}
+async function cancelJob(id){const r=await api("/api/cancel",{id});dropJobs([id]);save();renderTab(TAB);pollSoon(300);return r}
+function pendingIds(o){const out=[],add=(x,fk="img")=>{if(x&&x.job&&!x[fk]&&!x.error)out.push(x.job)};add(o);return out}
+async function cancelAll(){const act=Object.values(JM).filter(j=>j.status=="queued"||j.status=="running").length+(LLMP.active?1:0);
+if(!act||!confirm(`Batalkan semua proses yang sedang berjalan / antre (${act})?`))return;
+const ids=Object.values(JM).filter(j=>j.status=="queued"||j.status=="running").map(j=>j.id);await api("/api/cancel",{all:true});dropJobs(ids);save();renderTab(TAB);pollSoon(300)}
 /* ---------------- progres: persen + bar + waktu berjalan + perkiraan sisa */
 const fmtT=s=>s<60?s+" dtk":Math.floor(s/60)+"m "+String(s%60).padStart(2,"0")+"d";
-function progHTML(pct,label,elapsed){const eta=pct>=5&&pct<100&&elapsed?Math.round(elapsed*(100-pct)/pct):0;
-return `<div style="width:100%">${esc(label)}${pct!=null?` <b>${pct}%</b>`:""}${elapsed?`<span class="hint"> · ${fmtT(elapsed)}${eta?" · sisa ~"+fmtT(eta):""}</span>`:""}${pct!=null?`<div class="pb"><i style="width:${pct}%"></i></div>`:""}</div>`}
+function progHTML(pct,label,elapsed,cancel){const eta=pct>=5&&pct<100&&elapsed?Math.round(elapsed*(100-pct)/pct):0;
+return `<div style="width:100%">${esc(label)}${pct!=null?` <b>${pct}%</b>`:""}${elapsed?`<span class="hint"> · ${fmtT(elapsed)}${eta?" · sisa ~"+fmtT(eta):""}</span>`:""}${pct!=null?`<div class="pb"><i style="width:${pct}%"></i></div>`:""}${cancel||""}</div>`}
 function jobProg(j){if(!j)return "…";const p=j.progress||{};if(j.status=="done")return progHTML(100,"Selesai");
-return progHTML(p.pct??0,(p.stage||(j.status=="queued"?"Antre":"Memproses"))+(p.step?" "+p.step:""),j.elapsed)}
+const live=j.status=="queued"||j.status=="running",x=live&&!j.cancel?`<button class="cx" onclick="event.stopPropagation();cancelJob('${j.id}')" title="Hentikan proses ini">✕ Batal</button>`:"";
+return progHTML(p.pct??0,(p.stage||(j.status=="queued"?"Antre":"Memproses"))+(p.step?" "+p.step:""),j.elapsed,x)}
 const jobState=o=>{if(!o||!o.job)return "";if(o.error)return `<span class="err">Gagal: ${esc(o.error).slice(0,180)}</span>`;return `<span class="js" data-job="${esc(o.job)}" style="width:100%">${jobProg(JM[o.job])}</span>`};
 const JLABEL={style:"Pratinjau gaya",chars:"Gambar karakter",locs:"Gambar lokasi",scenes:"Sketsa",scene:"Video scene",music:"Musik",final:"Render final"};
 const jobLabel=j=>JLABEL[(j.params?.ref||"").split("/").pop()]||(j.params?.kind=="render"?"Render final":"Generate");
 let LLMP={},DLST={},needRender=false;
-function updateJobSpans(){document.querySelectorAll(".js[data-job]").forEach(el=>{const j=JM[el.dataset.job];if(j)el.innerHTML=jobProg(j)});
+function updateJobSpans(){document.querySelectorAll(".js[data-job]").forEach(el=>{const j=JM[el.dataset.job];if(j){const h=jobProg(j);if(el._h!==h){el._h=h;el.innerHTML=h}}});
 document.querySelectorAll(".jsp[data-job]").forEach(el=>{if(JM[el.dataset.job])el.textContent=jobPct(el.dataset.job)});const E=P.edit;
 if(E.rjob&&JM[E.rjob]){const p=JM[E.rjob].progress||{};$("e-go").textContent=`Merender… ${p.pct||0}%`;$("e-msg").innerHTML=jobProg(JM[E.rjob])}
 if(E.mjob&&JM[E.mjob]){const p=JM[E.mjob].progress||{};$("e-mgo").textContent=`Membuat musik… ${p.pct||0}%`;$("e-mmsg").innerHTML=jobProg(JM[E.mjob])}}
@@ -354,7 +367,8 @@ function actChip(){const js=Object.values(JM),out=[];const run=js.find(j=>j.stat
 const wait=js.filter(j=>j.status=="queued"&&!j.started).length;
 if(run)out.push(`⏳ ${jobLabel(run)} ${(run.progress||{}).pct||0}%`);if(wait)out.push(`+${wait} antre`);
 if(LLMP.active)out.push(`✍ AI ${LLMP.stage=="Menulis"?LLMP.pct+"%":"memuat…"}`);if(DLST.active)out.push(`⬇ Model ${DLST.overall||0}%`);
-if(LLM.pull?.active&&LLM.pull.total)out.push(`⬇ AI ${Math.round(100*LLM.pull.done/LLM.pull.total)}%`);$("act").textContent=out.join(" · ")}
+if(LLM.pull?.active&&LLM.pull.total)out.push(`⬇ AI ${Math.round(100*LLM.pull.done/LLM.pull.total)}%`);$("act").textContent=out.length?out.join(" · ")+"  ✕":"";$("act").title=out.length?"Klik untuk membatalkan semua proses":""}
+$("act").onclick=cancelAll;
 
 /* ---------------- status aplikasi, banner, pengaturan */
 async function status(){const s=await api("/api/status");if(s.error)return;const up=s.comfy&&!ST.comfy&&!cfg.live,chg=ST.comfy!==s.comfy||ST.has_key!==s.has_key;ST=s;
@@ -442,9 +456,9 @@ async function llmPull(name){name=(typeof name=="string"&&name.trim())||LLM.reco
 const r=await api("/api/llm/pull",{model:name});if(r.error)alert(r.error);llmStatus()}
 async function llmRun(btn,msg,body){if(btn.dataset.busy)return null;btn.dataset.busy=1;const old=btn.textContent;btn.disabled=true;btn.textContent="Memulai AI…";if(msg)$(msg).textContent="";const t0=Date.now();
 const tick=setInterval(async()=>{LLMP=await api("/api/llm/progress");const el=Math.round((Date.now()-t0)/1000);
-btn.textContent=LLMP.stage=="Menulis"?`AI menulis… ${LLMP.pct}%`:`Memuat model AI… ${fmtT(el)}`;if(msg)$(msg).innerHTML=progHTML(LLMP.stage=="Menulis"?LLMP.pct:0,LLMP.stage=="Menulis"?"AI menulis":"Memuat model AI (pertama kali bisa ~30 dtk)",el);actChip()},700);
+btn.textContent=LLMP.stage=="Menulis"?`AI menulis… ${LLMP.pct}%`:`Memuat model AI… ${fmtT(el)}`;if(msg)$(msg).innerHTML=progHTML(LLMP.stage=="Menulis"?LLMP.pct:0,LLMP.stage=="Menulis"?"AI menulis":"Memuat model AI (pertama kali bisa ~30 dtk)",el,`<button class="cx" onpointerdown="api('/api/cancel',{llm:true})">✕ Batal</button>`);actChip()},700);
 try{const r=await api("/api/llm/run",body);if(r.error)throw new Error(r.error);if(msg)$(msg).textContent="Ditulis oleh "+r._model+(r._warn?" · ⚠ "+r._warn:"");return r}
-catch(e){if(msg)$(msg).textContent="";alert(e.message);return null}finally{clearInterval(tick);LLMP={};actChip();delete btn.dataset.busy;btn.disabled=false;btn.textContent=old;syncButtons()}}
+catch(e){if(msg)$(msg).textContent=e.message=="Dibatalkan"?"Dibatalkan.":"";if(e.message!="Dibatalkan")alert(e.message);return null}finally{clearInterval(tick);LLMP={};actChip();delete btn.dataset.busy;btn.disabled=false;btn.textContent=old;syncButtons()}}
 
 /* ================= 1. IDE */
 const DEVF=["prompt","audience","genre","tone","lang","count"];
@@ -544,7 +558,8 @@ function scrCheck(){if(!$("s-check"))return;const c=contCheck(),tot=c.glob.lengt
 c.per.forEach((a,i)=>{const el=$("cw"+i);if(el)el.innerHTML=a.map(t=>`<div>⚠ ${esc(t)}</div>`).join("")});
 $("s-check").innerHTML=!P.scenes.length?"":tot?`<b style="color:var(--warn)">Cek continuity: ${tot} catatan</b>${c.glob.map(t=>`<div>⚠ ${esc(t)}</div>`).join("")}<div class="hint">Catatan per scene ada di kartunya. "Perbaiki continuity" mengirim semua catatan ini ke AI.</div>`:`<b class="okc">Cek continuity: tidak ada catatan ✓</b>`}
 function scMove(i,d){const j=i+d;if(j<0||j>=P.scenes.length)return;[P.scenes[i],P.scenes[j]]=[P.scenes[j],P.scenes[i]];save();scrRender()}
-function scDel(i){if(!confirm("Hapus scene "+(i+1)+"?"))return;P.scenes.splice(i,1);save();scrRender()}
+function scDel(i){if(!confirm("Hapus scene "+(i+1)+"?"))return;const s=P.scenes[i],ids=[...s.takes.filter(t=>t.job&&!t.file).map(t=>t.job),s.sketch?.job&&!s.sketch.img?s.sketch.job:""].filter(Boolean);
+if(ids.length)api("/api/cancel",{ids});P.scenes.splice(i,1);save();scrRender()}
 $("s-total").onchange=()=>{P.target=+$("s-total").value;save();scrSum()};$("s-max").oninput=()=>{P.maxScene=+$("s-max").value||8;save()};
 $("s-add").onclick=()=>{P.scenes.push(migrate({scenes:[{}]}).scenes[0]);save();scrRender()};
 async function makeScript(btn){if(!P.story.trim()){alert("Storyline masih kosong.");return false}
@@ -590,7 +605,7 @@ if(r.error){alert(r.error);return false}Object.assign(tgt,{job:r.id,t:Date.now()
 document.querySelectorAll("[data-genall]").forEach(b=>b.onclick=()=>busyRun(b,"Mengantre…",async()=>{const k=b.dataset.genall,arr=k=="scenes"?P.scenes:P[k];
 if(!(await needModels("bd")))return;for(let i=0;i<arr.length;i++){const t=k=="scenes"?arr[i].sketch:arr[i];if(!t.img&&!pend(t)&&!(await genImg(k,i,true)))break}await poll();bdRender()}));
 document.querySelectorAll("[data-add]").forEach(b=>b.onclick=()=>{const k=b.dataset.add;P[k].push(k=="chars"?{id:uid(),name:"",look:"",wardrobe:"",makeup:"",job:"",img:""}:k=="locs"?{id:uid(),name:"",desc:"",job:"",img:""}:{id:uid(),name:"",desc:""});save();bdRender()});
-function bdDel(k,i){if(!confirm("Hapus?"))return;const id=P[k][i].id;P[k].splice(i,1);P.scenes.forEach(s=>{if(s.loc==id)s.loc="";s.chars=s.chars.filter(x=>x!=id);s.props=s.props.filter(x=>x!=id)});save();bdRender()}
+function bdDel(k,i){if(!confirm("Hapus?"))return;const it=P[k][i];if(it.job&&!it.img)api("/api/cancel",{id:it.job});const id=it.id;P[k].splice(i,1);P.scenes.forEach(s=>{if(s.loc==id)s.loc="";s.chars=s.chars.filter(x=>x!=id);s.props=s.props.filter(x=>x!=id)});save();bdRender()}
 const imgBox=t=>t.img?`<div class="img" onclick="lbox('${esc(t.img)}')"><img src="/outputs/${esc(t.img)}"></div>`:`<div class="img">${jobState(t)||"Belum ada gambar"}</div>`;
 const fld=(path,v,ph,ta,h)=>ta?`<textarea placeholder="${ph}" style="height:${h||60}px" oninput="${path}=this.value;save()">${esc(v)}</textarea>`:`<input placeholder="${ph}" value="${esc(v)}" oninput="${path}=this.value;save()">`;
 /* ---- gaya visual: kartu thumbnail + pratinjau asli */
@@ -693,7 +708,7 @@ $("v-list").innerHTML=P.scenes.map((s,i)=>`${actHead(s,i)}<div class="sc s4"><di
 ${t.file?`${vthumb(t.file)}<label class="chk" style="margin-top:3px"><input type="radio" name="tk${i}" ${t.file==s.take?"checked":""} onchange="P.scenes[${i}].take='${esc(t.file)}';save();prodRender()">Pakai</label>`
 :`<div class="st">${jobState(t)}</div>`}<span class="x" onclick="delTake(${i},${k})" title="hapus take">✕</span></div>`).join("")||`<span class="hint">Belum ada take.</span>`}</div></div></div>${trLine(s,i)}`).join("")
 ||`<div class="hint">Belum ada scene (tahap 2).</div>`;const left=P.scenes.filter(s=>!s.take).length;$("n4").textContent=left?`${left} scene belum punya take terpilih.`:""}
-function delTake(i,k){const s=P.scenes[i],t=s.takes[k];if(!confirm("Hapus take ini dari scene?"))return;s.takes.splice(k,1);if(s.take==t.file)s.take=s.takes.find(x=>x.file)?.file||"";save();prodRender()}
+function delTake(i,k){const s=P.scenes[i],t=s.takes[k];if(!confirm(t.file?"Hapus take ini dari scene?":"Batalkan dan hapus take ini?"))return;if(t.job&&!t.file)api("/api/cancel",{id:t.job});s.takes.splice(k,1);if(s.take==t.file)s.take=s.takes.find(x=>x.file)?.file||"";save();prodRender()}
 /* continuity antar klip: frame terakhir take scene sebelumnya = frame pertama klip ini (image-to-video) */
 const CHAIN_TR=["cut","match on action","cut in"];  // aksi berlanjut di ruang yang sama
 const engFirst=()=>P.prod.engine?!!engMeta()?.first_frame:!!cfg.i2v;

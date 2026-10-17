@@ -171,6 +171,34 @@ S_STORY = {"type": "object", "required": ["title", "premise", "dramatic_question
                           "act3": {"type": "object", "required": ["climax", "resolution", "closing_image"],
                                    "properties": {k: _STR for k in ("climax", "resolution", "closing_image")}}}}
 
+S_STORY_EP = json.loads(json.dumps(S_STORY))  # episode serial: + recap & cliffhanger
+S_STORY_EP["required"] += ["recap", "cliffhanger"]
+S_STORY_EP["properties"].update(recap=_STR, cliffhanger=_STR)
+
+
+def _series_ctx(s):
+    """Blok konteks serial untuk prompt (bible, ledger episode sebelumnya, rencana episode ini)."""
+    if not s:
+        return ""
+    parts = ["SERIES: %s - episode %s of %s. %s" % (s.get("name", ""), s.get("ep", "?"), s.get("total", "?"),
+                                                   s.get("logline", ""))]
+    if s.get("bible"):
+        parts.append("SERIES BIBLE (fixed, never contradict):\n" + s["bible"])
+    if s.get("ledger"):
+        parts.append("STATE LEDGER at the end of the previous episode (continue exactly from it):\n" + s["ledger"])
+    if s.get("recap"):
+        parts.append("PREVIOUSLY (recap of the previous episode): " + s["recap"])
+    if s.get("outline"):
+        parts.append("PLAN FOR THIS EPISODE:\n" + s["outline"])
+    if s.get("finale"):
+        parts.append("This is the SEASON FINALE: answer the season question and resolve the main arc (at most a small "
+                     "teaser at the very end); do not end on a hard cliffhanger.")
+    else:
+        parts.append("PLANNED CLIFFHANGER for the end of this episode: " + (s.get("cliffhanger") or "invent a strong one"))
+    parts.append(film.CLIFF)
+    return "\n\n".join(parts)
+
+
 # Satu scene = satu shot. Urutan kolom = urutan berpikir: struktur -> hubungan -> isi -> decoupage -> transisi.
 _SCENE_PROPS = {"duration": {"type": "integer"}, "act": {"type": "integer", "enum": [1, 2, 3]},
                 "beat": {"type": "string", "enum": STORY_BEATS}, "purpose": _STR, "link_in": _STR,
@@ -226,7 +254,13 @@ def storyline(base, model, d):
             "never 'and then').\n\n%s\n\nWrite in %s."
             % (d.get("duration") or 30, d.get("title", ""), d.get("logline", ""), d.get("hook", ""),
                d.get("prompt", ""), _brief(d), film.story_text_rules(), d.get("lang") or "Bahasa Indonesia"))
-    return chat_json(base, model, SYSTEM, user, S_STORY, est=560, task="storyline")
+    ser = d.get("series")
+    if ser:
+        user += ("\n\n" + _series_ctx(ser) + "\n\nThis storyline is for ONE EPISODE of the series: use the bible characters (exact names), "
+                 "continue from the ledger, and also give `recap` (1-2 sentences in the story language recalling the previous "
+                 "episode's cliffhanger; empty string for episode 1) and `cliffhanger` (the final shocking image/event of this "
+                 "episode, empty for a finale). Act 3's closing_image sets up the cliffhanger.")
+    return chat_json(base, model, SYSTEM, user, S_STORY_EP if ser else S_STORY, est=620 if ser else 560, task="storyline")
 
 
 # Jenis suara: menentukan isi kolom dialog tiap scene. Kolom dialog WAJIB di schema; dengan structured output
@@ -263,15 +297,23 @@ def script(base, model, d):
             "Write purpose, link_in, location, time, action, dialog and onscreen_text in %s; first_frame, visual, "
             "last_frame and sound in English."
             % (total, d.get("storyline", ""), n, max_scene, total, FIELDS, CRAFT, _voice_rules(d.get("voice"), lang), lang))
+    ser = d.get("series")
+    if ser:
+        user += ("\n\n" + _series_ctx(ser) + "\n\nFor this serial episode: " +
+                 ("the first scene has beat recap (a very short recap shot, at most 4 s) and " if ser.get("recap") else "") +
+                 ("the LAST scene has beat cliffhanger (act 3): it shows the planned cliffhanger in its last 2-4 seconds and "
+                  "cuts at the peak (fade to black or cut); the scene before it is the climax." if not ser.get("finale") else
+                  "the last scene has beat resolution."))
     res = chat_json(base, model, SYSTEM, user, S_SCRIPT, est=290 * n + 30, task="script")
-    res["scenes"] = fix_structure(fit_durations(res.get("scenes") or [], total, max_scene))
+    res["scenes"] = fix_structure(fit_durations(res.get("scenes") or [], total, max_scene),
+                                  series=ser and not ser.get("finale"), recap=bool(ser and ser.get("recap")))
     got = sum(x["duration"] for x in res["scenes"])
     if got != total:
         res["_warn"] = "Total %d dtk dari target %d dtk: tambah/hapus scene atau ubah durasi." % (got, total)
     return res
 
 
-def fix_structure(scenes):
+def fix_structure(scenes, series=False, recap=False):
     """Rapikan babak/beat/transisi: babak tidak boleh mundur; yang kosong diisi menurut posisi (25/50/25)."""
     n, prev = len(scenes), 1
     for i, s in enumerate(scenes):
@@ -289,6 +331,10 @@ def fix_structure(scenes):
         for i, s in enumerate(scenes):
             pos = (i + 0.5) / n
             s["act"] = 1 if pos < 0.25 else 2 if pos < 0.75 else 3
+    if series and scenes:  # episode serial: scene terakhir = cliffhanger
+        scenes[-1]["beat"], scenes[-1]["act"] = "cliffhanger", 3
+    if recap and scenes:
+        scenes[0]["beat"], scenes[0]["act"] = "recap", 1
     for i, s in enumerate(scenes):
         act = s["act"]
         if s.get("beat") not in STORY_BEATS:
@@ -369,6 +415,9 @@ def breakdown(base, model, d):
             "Write ALL descriptions in English (they become AI video prompts); keep character and location names "
             "exactly as in the script."
             % (d.get("storyline", ""), "\n".join(lines), d.get("style", ""), len(scenes)))
+    if d.get("known"):
+        user += ("\n\nKNOWN SERIES ELEMENTS (already designed and approved; reuse these names EXACTLY and copy their "
+                 "descriptions VERBATIM, only add new characters/locations/props when the script needs them):\n" + d["known"])
     return chat_json(base, model, SYSTEM, user, S_BREAKDOWN, est=300 + 75 * len(scenes), task="breakdown")
 
 
@@ -408,6 +457,54 @@ def continuity(base, model, d):
             out[i].update({k: x[k] for k in _CONT_KEYS if x.get(k) not in (None, "")})
     fix_structure(out)
     return {"scenes": [{k: s.get(k) for k in _CONT_KEYS} for s in out]}
+
+
+S_SEASON = {"type": "object", "required": ["title", "season_question", "summary", "episodes"], "properties": {
+    "title": _STR, "season_question": _STR, "summary": _STR,
+    "episodes": {"type": "array", "items": {"type": "object", "required": ["title", "logline", "events", "arc", "cliffhanger"],
+                 "properties": {"title": _STR, "logline": _STR, "events": _STR, "arc": _STR, "cliffhanger": _STR}}}}}
+
+
+def season(base, model, d):
+    """Garis besar satu musim: pertanyaan musim, tiap episode (logline, kejadian, perkembangan tokoh, cliffhanger)."""
+    n = max(2, min(12, int(d.get("episodes") or 5)))
+    lang = d.get("lang") or "Bahasa Indonesia"
+    user = ("Plan ONE SEASON of a vertical short-video serial with exactly %d episodes (each about %s seconds).\n\n"
+            "SERIES: %s\nLogline: %s\nGenre: %s  Tone: %s\nCharacters and world:\n%s\n\n"
+            "Give: title, season_question (the big question the finale answers), summary (3-4 sentences), and for EACH episode "
+            "1-%d: title, logline (1 sentence), events (3-5 key events in order, each caused by the previous), arc (how the "
+            "protagonist changes or what is learned), cliffhanger (the closing shocking image/event; for the LAST episode the "
+            "emotional answer to the season question instead, with at most a small teaser).\n"
+            "Season shape: episode 1 hooks hard and introduces the world; the middle of the season has a twist that raises "
+            "the stakes (midpoint); the episode before the finale is the lowest point; the finale answers the season question. "
+            "Escalate the cliffhangers. Write in %s.\n\n%s"
+            % (n, d.get("target") or 30, d.get("name", ""), d.get("logline", ""), d.get("genre", ""), d.get("tone", ""),
+               d.get("bible") or "(none yet: invent fitting characters)", n, lang, film.CLIFF))
+    return chat_json(base, model, SYSTEM, user, S_SEASON, est=120 + 150 * n, task="season")
+
+
+S_LEDGER = {"type": "object", "required": ["summary", "characters", "relationships", "place_time", "open_threads", "cliffhanger"],
+            "properties": {"summary": _STR, "relationships": {"type": "array", "items": _STR}, "place_time": _STR,
+                           "open_threads": {"type": "array", "items": _STR}, "cliffhanger": _STR,
+                           "characters": {"type": "array", "items": {"type": "object",
+                                          "required": ["name", "status", "wardrobe", "carrying", "knows"],
+                                          "properties": {k: _STR for k in ("name", "status", "wardrobe", "carrying", "knows")}}}}}
+
+
+def ledger(base, model, d):
+    """Ledger status akhir episode (untuk episode berikutnya): ringkasan 'sebelumnya di serial', keadaan tiap tokoh,
+    hubungan, tempat & waktu, benang cerita yang belum selesai, cliffhanger."""
+    lang = d.get("lang") or "Bahasa Indonesia"
+    scenes = ["Scene %d: %s | %s" % (i + 1, s.get("action", ""), (s.get("dialog") or "").replace("\n", " / "))
+              for i, s in enumerate(d.get("scenes") or [])]
+    user = ("Summarize the state of the story at the END of this serial episode so the next episode can continue exactly.\n\n"
+            "SERIES BIBLE:\n%s\n\nLEDGER BEFORE THIS EPISODE:\n%s\n\nEPISODE STORYLINE:\n%s\n\nEPISODE SCENES:\n%s\n\n"
+            "Return: summary (2-3 sentences 'previously on', written in %s, ending on the cliffhanger), characters (every "
+            "character that appears: status = physical/emotional state and injuries, wardrobe = what they wear now, carrying = "
+            "objects in hand, knows = what they know now), relationships (changes between characters), place_time (where and when "
+            "the episode ends), open_threads (unresolved questions), cliffhanger (what the last moments show). Be concrete."
+            % (d.get("bible") or "-", d.get("ledger") or "(first episode)", d.get("storyline", ""), "\n".join(scenes), lang))
+    return chat_json(base, model, SYSTEM, user, S_LEDGER, est=420, task="ledger")
 
 
 S_DIALOG = {"type": "object", "required": ["lines"], "properties": {"lines": {"type": "array", "items": {

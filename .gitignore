@@ -14,3 +14,4 @@ comfy.log.old
 comfy.state.json
 comfy.state.json.tmp
 comfy.retry
+series/

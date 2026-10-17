@@ -7,10 +7,11 @@ antar shot berlaku di antara scene yang berurutan."""
 
 # Beat struktur 3 babak (urutan = urutan cerita). point_of_attack = scene pendek di akhir babak 1 yang mengubah
 # tujuan tokoh dan membawa masuk ke babak 2.
-STORY_BEATS = ["opening_image", "setup", "inciting_incident", "point_of_attack", "rising_action", "midpoint",
-               "crisis", "climax", "resolution"]
-BEAT_ACT = {"opening_image": 1, "setup": 1, "inciting_incident": 1, "point_of_attack": 1, "rising_action": 2,
-            "midpoint": 2, "crisis": 2, "climax": 3, "resolution": 3}
+# recap (serial: "previously on") membuka episode lanjutan; cliffhanger menutup episode serial (bukan resolution).
+STORY_BEATS = ["recap", "opening_image", "setup", "inciting_incident", "point_of_attack", "rising_action", "midpoint",
+               "crisis", "climax", "resolution", "cliffhanger"]
+BEAT_ACT = {"recap": 1, "opening_image": 1, "setup": 1, "inciting_incident": 1, "point_of_attack": 1,
+            "rising_action": 2, "midpoint": 2, "crisis": 2, "climax": 3, "resolution": 3, "cliffhanger": 3}
 
 # Ukuran shot (classical cutting: ELS -> LS -> FS -> MS -> MCU -> CU -> BCU -> ECU), sudut, gerak kamera, arah gerak.
 SHOTS = ["Extreme long shot", "Long shot", "Full shot", "Medium long shot", "Medium shot", "Medium close-up",
@@ -96,6 +97,21 @@ SOUND:
   character, interior monologue (thoughts). Do not let a character announce what they are about to do.
 - sound (English) = diegetic effects and ambience that make the space and time real (footsteps, wind, birds at
   dawn, rain, traffic, room tone) and support the mood; a sound may continue over the cut as a bridge."""
+
+
+CLIFF = """SERIES RULES (continuing serial with cliffhangers):
+- Every episode is a complete mini three-act story: its own dramatic question is answered at the climax. Only the
+  LAST beat (cliffhanger) opens a bigger question that the next episode must answer. Never resolve the cliffhanger.
+- Cliffhanger types: reveal (a truth changes everything), danger (the protagonist in immediate peril), choice (an
+  impossible decision), arrival/betrayal (an unexpected person or act), loss/vanishing (someone or something is gone).
+  Show it visually in the last 2-4 seconds of the final scene and cut at the peak (smash cut or fade to black).
+- Control information: either the audience knows something the characters do not (suspense), or we see the shocking
+  image without explanation (surprise). Each cliffhanger raises the stakes above the previous episode's.
+- A continuing episode opens with a recap beat (1-2 very short shots, at most 4 seconds in total, recalling the previous
+  cliffhanger with the same costumes and place), then pays the cliffhanger off in the first scenes of act 1. Do not
+  repeat information the audience already has beyond that recap.
+- Continuity: the STATE LEDGER and SERIES BIBLE are law. Characters keep their looks, wardrobe, injuries, objects,
+  knowledge, relationships, place and time of day unless a time skip is shown. Use the same names."""
 
 
 def story_text_rules():

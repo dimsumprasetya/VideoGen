@@ -18,6 +18,7 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(BASE, "outputs")
 WF = os.path.join(BASE, "workflows")
 PROJ = os.path.join(BASE, "projects")
+SERIES = os.path.join(BASE, "series")  # serial: bible bersama + daftar episode (tiap episode = satu proyek)
 THUMBS = os.path.join(BASE, "cache", "styles")  # foto contoh gaya (Pexels), diunduh sekali
 VTHUMBS = os.path.join(BASE, "cache", "thumbs")
 REFS = os.path.join(BASE, "cache", "refs")  # gambar acuan dibuat persegi (kanvas sama) untuk node Seedream
@@ -917,6 +918,13 @@ def proj_path(name):
     return os.path.join(PROJ, name + ".json")
 
 
+def ser_path(name):
+    name = re.sub(r"[^\w\- ]", "", str(name or "")).strip()[:60]
+    if not name:
+        raise ValueError("Nama serial kosong.")
+    return os.path.join(SERIES, name + ".json")
+
+
 def llm_base():
     return os.environ.get("OLLAMA_HOST_URL", "").rstrip("/") or CFG["ollama_url"].rstrip("/")
 
@@ -941,7 +949,8 @@ def llm_run(d):
             except Exception:
                 pass
     task = {"ideas": llm.ideas, "storyline": llm.storyline, "script": llm.script,
-            "breakdown": llm.breakdown, "dialog": llm.dialog, "continuity": llm.continuity}.get(d.get("task"))
+            "breakdown": llm.breakdown, "dialog": llm.dialog, "continuity": llm.continuity,
+            "season": llm.season, "ledger": llm.ledger}.get(d.get("task"))
     if not task:
         raise ValueError("Tugas LLM tidak dikenal.")
     BUSY["llm"] += 1
@@ -1190,6 +1199,15 @@ class H(BaseHTTPRequestHandler):
         elif u.path == "/api/projects":
             names = sorted(f[:-5] for f in os.listdir(PROJ) if f.endswith(".json")) if os.path.isdir(PROJ) else []
             self.send_json(names)
+        elif u.path == "/api/series":
+            names = sorted(f[:-5] for f in os.listdir(SERIES) if f.endswith(".json")) if os.path.isdir(SERIES) else []
+            self.send_json(names)
+        elif u.path == "/api/serie":
+            try:
+                with open(ser_path(parse_qs(u.query).get("name", [""])[0]), encoding="utf-8") as f:
+                    self.send_json(json.load(f))
+            except (OSError, ValueError):
+                self.send_json({})
         elif u.path == "/api/project":
             try:
                 with open(proj_path(parse_qs(u.query).get("name", [""])[0]), encoding="utf-8") as f:
@@ -1388,6 +1406,18 @@ class H(BaseHTTPRequestHandler):
                 self.send_json({"ok": True})
             elif self.path == "/api/llm/model":
                 save_cfg(llm_model=str(d.get("model", "")))
+                self.send_json({"ok": True})
+            elif self.path == "/api/serie":
+                path = ser_path(d.get("name"))
+                os.makedirs(SERIES, exist_ok=True)
+                if d.get("delete"):
+                    if os.path.exists(path):
+                        os.remove(path)
+                else:
+                    tmp = path + ".tmp"
+                    with open(tmp, "w", encoding="utf-8") as f:
+                        json.dump(d.get("data") or {}, f, ensure_ascii=False, indent=1)
+                    os.replace(tmp, path)
                 self.send_json({"ok": True})
             elif self.path == "/api/project":
                 path = proj_path(d.get("name"))

@@ -14,7 +14,7 @@ VERSION_FILE = os.path.join(BASE, "version.txt")
 # Milik pengguna: tidak pernah ditimpa / dihapus oleh pembaruan.
 KEEP = {"studio_config.json", "api_key.txt", "python_path.txt", "version.txt", "studio.log", "studio.pids",
         "cek-ollama.txt", "comfy.log", "comfy.state.json", "comfy.retry"}
-KEEP_DIRS = {"outputs", "projects", "cache", ".git"}
+KEEP_DIRS = {"outputs", "projects", "series", "cache", ".git"}
 _DIRECT = urllib.request.build_opener()
 
 

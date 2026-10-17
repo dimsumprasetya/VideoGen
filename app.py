@@ -20,6 +20,7 @@ WF = os.path.join(BASE, "workflows")
 PROJ = os.path.join(BASE, "projects")
 THUMBS = os.path.join(BASE, "cache", "styles")  # foto contoh gaya (Pexels), diunduh sekali
 VTHUMBS = os.path.join(BASE, "cache", "thumbs")
+REFS = os.path.join(BASE, "cache", "refs")  # gambar acuan dibuat persegi (kanvas sama) untuk node Seedream
 FRAMES = os.path.join(BASE, "cache", "frames")  # frame terakhir tiap take (PNG penuh, untuk image-to-video)  # cuplikan JPG kecil dari video (pengganti <video> di daftar take)
 NOWIN = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 THUMB_FAIL = {}  # pexels id -> waktu gagal terakhir (jangan coba ulang terus-menerus)  # breakdown pra-produksi: projects/<nama>.json
@@ -184,6 +185,7 @@ def comfy_url():
 
 KEY_FILE = os.path.join(BASE, "api_key.txt")
 NODE = "ByteDanceTextToVideoNode"
+SEEDREAM = "ByteDanceSeedreamNode"  # gambar dengan gambar acuan (storyboard yang mirip karakter/lokasi Breakdown)
 I2V = "ByteDanceImageToVideoNode"  # frame pertama = frame terakhir scene sebelumnya (continuity antar klip)
 _SPECS = {}  # node -> {"t", "base", "spec"}
 
@@ -327,7 +329,63 @@ def custom_graph(name, p):
     if p.get("image") and ff and ff[0] in graph:
         graph["900"] = {"class_type": "LoadImage", "inputs": {"image": p["image"]}}
         graph[ff[0]]["inputs"][ff[1]] = ["900", 0]
+    for k, up in enumerate(p.get("refs_up") or []):  # _studio.refs: [[node, input IMAGE], ...] = slot gambar acuan
+        slots = meta.get("refs") or []
+        if k >= len(slots) or slots[k][0] not in graph:
+            break
+        graph["91%d" % k] = {"class_type": "LoadImage", "inputs": {"image": up}}
+        graph[slots[k][0]]["inputs"][slots[k][1]] = ["91%d" % k, 0]
     return graph
+
+
+def seedream_size(aspect):
+    """Ukuran piksel Seedream untuk aspek (~2,4 MP; tiap sisi >= 1024, kelipatan 32)."""
+    m = re.match(r"^(\d+):(\d+)$", str(aspect or ""))
+    ar = (int(m.group(1)) / int(m.group(2))) if m and int(m.group(2)) else 9 / 16
+    w = max(1024, int(round((2_360_000 * ar) ** 0.5 / 32)) * 32)
+    h = max(1024, int(round(w / ar / 32)) * 32)
+    w = max(1024, int(round(h * ar / 32)) * 32)
+    return w, h
+
+
+def build_seedream(p, refs_up, spec):
+    """Gambar dengan Seedream (cloud). refs_up = nama file di folder input ComfyUI (dikirim sebagai gambar acuan)."""
+    w, h = seedream_size(p["aspect"])
+    models = (spec["combos"].get("model") if spec else None) or []
+    model = next((m for m in ("seedream-4-0-250828", "seedream-4-5-251128") if m in models), models[-1] if models else "seedream-4-0-250828")
+    inputs = {"model": model, "prompt": p["prompt"], "size_preset": "Custom", "width": w, "height": h,
+              "sequential_image_generation": "disabled", "max_images": 1, "seed": p["seed"], "watermark": False}
+    if spec:
+        inputs = {k: v for k, v in inputs.items() if k in spec["names"]}
+    graph = {}
+    last = None
+    for k, up in enumerate(refs_up):
+        graph["r%d" % k] = {"class_type": "LoadImage", "inputs": {"image": up}}
+        if last is None:
+            last = ["r0", 0]
+        else:
+            graph["b%d" % k] = {"class_type": "ImageBatch", "inputs": {"image1": last, "image2": ["r%d" % k, 0]}}
+            last = ["b%d" % k, 0]
+    if last:
+        inputs["image"] = last
+    graph["1"] = {"class_type": SEEDREAM, "inputs": inputs}
+    graph["2"] = {"class_type": "SaveImage", "inputs": {"images": ["1", 0], "filename_prefix": "storyboard/seedream"}}
+    return graph
+
+
+def ref_path(name, square):
+    """File acuan di outputs. square: kanvas persegi 1024 (letterbox putih) supaya beberapa gambar bisa digabung
+    jadi satu batch tanpa terpotong."""
+    src = out_path(name)
+    if not square or not has_tool("ffmpeg"):
+        return src
+    dst = os.path.join(REFS, os.path.basename(src) + ".sq.png")
+    if not os.path.exists(dst):
+        os.makedirs(REFS, exist_ok=True)
+        subprocess.run([shutil.which("ffmpeg") or "ffmpeg", "-v", "error", "-y", "-i", src, "-vf",
+                        "scale=1024:1024:force_original_aspect_ratio=decrease,pad=1024:1024:(ow-iw)/2:(oh-ih)/2:color=white",
+                        "-frames:v", "1", dst], capture_output=True, timeout=60, creationflags=NOWIN)
+    return dst if os.path.exists(dst) else src
 
 
 # ---------------------------------------------------------------- model lokal (cek & unduh)
@@ -544,8 +602,19 @@ def run_job(job):
                 job["progress"] = {"pct": 0, "stage": "Mengambil frame terakhir scene sebelumnya"}
                 image = comfy_upload(base, last_frame(src))
                 job["first_used"] = src
-        if p.get("workflow"):
-            graph = custom_graph(p["workflow"], dict(p, image=image))
+        refs_up = []
+        if p.get("refs"):  # gambar acuan (karakter/lokasi dari Breakdown) -> folder input ComfyUI
+            job["progress"] = {"pct": 0, "stage": "Mengunggah gambar acuan"}
+            for f in p["refs"][:10]:
+                refs_up.append(comfy_upload(base, ref_path(f, bool(p.get("seedream")))))
+            chk()
+        if p.get("seedream"):
+            spec = node_spec(base, SEEDREAM)
+            if not spec:
+                raise RuntimeError("Node %s tidak ada di ComfyUI ini (update ComfyUI). Pilih workflow gambar lokal di tab Storyboard." % SEEDREAM)
+            graph = build_seedream(p, refs_up, spec)
+        elif p.get("workflow"):
+            graph = custom_graph(p["workflow"], dict(p, image=image, refs_up=refs_up))
         else:
             spec = node_spec(base, I2V if image else NODE)
             if image and not spec:
@@ -836,6 +905,7 @@ def clean_params(d):
         "audio": bool(d.get("audio")), "camera_fixed": bool(d.get("camera_fixed")),
         "workflow": wf, "ref": str(d.get("ref", ""))[:80],
         # frame pertama: file hasil (video -> frame terakhirnya, gambar -> apa adanya) atau job yang belum selesai
+        "refs": [os.path.basename(str(x)) for x in (d.get("refs") or [])][:10], "seedream": bool(d.get("seedream")),
         "first_file": os.path.basename(str(d.get("first_file") or "")), "first_job": str(d.get("first_job") or "")[:40],
     }
 
@@ -1084,14 +1154,14 @@ class H(BaseHTTPRequestHandler):
             names = sorted(f for f in os.listdir(WF) if f.endswith(".json")) if os.path.isdir(WF) else []
             wfs = [{"file": f, "label": wf_meta(f).get("label") or f, "note": wf_meta(f).get("note", ""),
                     "kind": wf_meta(f).get("kind", "video"), "max_duration": wf_meta(f).get("max_duration", 15),
-                    "audio": bool(wf_meta(f).get("audio")), "first_frame": bool(wf_meta(f).get("first_frame"))}
+                    "audio": bool(wf_meta(f).get("audio")), "first_frame": bool(wf_meta(f).get("first_frame")), "refs": len(wf_meta(f).get("refs") or [])}
                    for f in names]
             spec = node_spec(comfy_url())
             cb = spec["combos"] if spec else {}
             i2v = node_spec(comfy_url(), I2V)
             self.send_json({"models": model_list(spec), "aspects": cb.get("aspect_ratio") or ASPECTS,
                             "resolutions": cb.get("resolution") or RESOLUTIONS, "live": bool(spec),
-                            "i2v": bool(i2v), "i2v_models": (i2v or {}).get("combos", {}).get("model") or [],
+                            "seedream": bool(node_spec(comfy_url(), SEEDREAM)), "i2v": bool(i2v), "i2v_models": (i2v or {}).get("combos", {}).get("model") or [],
                             "workflows": wfs})
         elif u.path == "/api/busy":
             self.send_json({"busy": busy()})

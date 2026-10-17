@@ -10,6 +10,8 @@ Kunci opsional "_studio" (dibuang sebelum dikirim ke ComfyUI):
   "first_frame": ["<id node>", "<nama input IMAGE>"]  (opsional, workflow video)
   -> node yang menerima frame pertama. Dipakai untuk continuity: frame terakhir take scene sebelumnya
      diunggah ke ComfyUI (/upload/image) dan disambungkan lewat node LoadImage baru (id "900").
+  "refs": [["<id node>", "<nama input IMAGE>"], ...]  (opsional, workflow gambar)
+  -> slot gambar acuan (karakter/lokasi dari Breakdown). Gambar ke-k dikirim lewat LoadImage baru (id "91k").
 kind menentukan tahap: video -> 4 Production, image -> 3 Breakdown (gambar referensi/sketsa), audio -> 5 Editing (musik).
 Workflow boleh menghasilkan video (SaveVideo), gambar (SaveImage) atau audio (SaveAudio).
 Workflow muncul di dropdown "Workflow" pada UI.
@@ -26,3 +28,6 @@ Bawaan (lokal, gratis, tanpa kredit Comfy):
   vae/ae.safetensors (https://huggingface.co/Comfy-Org/z_image_turbo)
 - ace-step-musik.json — ACE-Step musik instrumental (tags = prompt, durasi = panjang video).
   Model: checkpoints/ace_step_v1_3.5b.safetensors (https://huggingface.co/Comfy-Org/ACE-Step_ComfyUI_repackaged)
+- qwen-image-edit-referensi.json — Qwen-Image-Edit 2509 + Lightning 4 step: gambar baru dengan sampai 3 gambar acuan (refs = node 7 image1..3).
+  Model: diffusion_models/qwen_image_edit_2509_fp8_e4m3fn.safetensors, text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors,
+  vae/qwen_image_vae.safetensors, loras/Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors (~31 GB; belum diuji).

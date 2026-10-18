@@ -117,7 +117,7 @@ button.sm,.btns button,nav button,.next button,.take .x{min-height:36px}button.s
 <!-- SERIAL -->
 <div id="p-ser" class="pg"><div class="side">
 <label style="margin-top:0">Serial</label><select id="sr-sel"></select>
-<div class="btns"><button class="sec" id="sr-new">Baru (kosong)</button><button class="sec" id="sr-from">Jadikan serial dari proyek ini</button><button class="sec" id="sr-del">Hapus</button></div>
+<div class="btns"><button class="sec" id="sr-new">Baru (kosong)</button><button class="sec" id="sr-story" title="Cerita lepas dengan karakter, lokasi, gaya & pengaturan yang sama">Cerita baru dari serial ini</button><button class="sec" id="sr-from">Jadikan serial dari proyek ini</button><button class="sec" id="sr-del">Hapus</button></div>
 <div class="hint" id="sr-hint">Serial = beberapa episode yang bersambung. Tiap episode adalah satu proyek dengan karakter, lokasi, gaya & gambar referensi yang sama, dan ditutup cliffhanger.</div>
 <div id="sr-form" style="display:none">
 <label>Premis serial</label><textarea id="sr-logline" style="height:70px"></textarea>
@@ -290,7 +290,7 @@ let cfg={models:[],aspects:["9:16"],resolutions:["720p"],workflows:[]},ST={},JM=
 /* ---------------- proyek */
 const BLANK=()=>({v:2,dev:{prompt:"",audience:"",genre:"",tone:"",lang:"Bahasa Indonesia",count:4,ideas:[],chosen:-1},story:"",target:30,maxScene:8,scenes:[],
 look:{style:"",styleId:"",camera:"",lighting:"",palette:""},styleThumbs:{},chars:[],locs:[],props:[],bd:false,imgwf:"",
-series:null,prod:{engine:"",model:"",aspect:"9:16",resolution:"720p",audio:false},sbCols:0,sbwf:null,sbRefs:true,
+series:null,world:null,prod:{engine:"",model:"",aspect:"9:16",resolution:"720p",audio:false},sbCols:0,sbwf:null,sbRefs:true,
 voice:"mix",edit:{duck:true,tr:"script",fade:0.5,ca:true,cv:1,sub:"onscreen",music:"",audios:[],mv:0.3,mwf:"",mp:"",mjob:"",rjob:"",final:""}});
 let P=BLANK(),PN="",saveT=0;
 function migrate(d){const p=Object.assign(BLANK(),d||{});const b=BLANK();
@@ -518,7 +518,7 @@ let S=null,SN="",serT=0;
 const serSave=()=>{clearTimeout(serT);serT=setTimeout(()=>S&&api("/api/serie",{name:SN,data:S}),500)};
 const ledgerText=l=>!l?"":[`Place/time at the end: ${l.place_time||""}`,...(l.characters||[]).map(c=>`- ${c.name}: ${c.status}; wearing ${c.wardrobe}; carrying ${c.carrying}; knows: ${c.knows}`),
 ...(l.relationships||[]).map(r=>"Relationship: "+r),"Open threads: "+(l.open_threads||[]).join("; "),"Last moments: "+(l.cliffhanger||"")].join("\n");
-const knownText=()=>P.series?[...P.chars.filter(c=>c.lock).map(c=>`CHARACTER ${c.name}: ${c.look}. Wardrobe: ${c.wardrobe}. ${c.makeup&&c.makeup!="none"?"Make-up: "+c.makeup+".":""}`),
+const knownText=()=>P.world?[...P.chars.filter(c=>c.lock).map(c=>`CHARACTER ${c.name}: ${c.look}. Wardrobe: ${c.wardrobe}. ${c.makeup&&c.makeup!="none"?"Make-up: "+c.makeup+".":""}`),
 ...P.locs.filter(c=>c.lock).map(c=>`LOCATION ${c.name}: ${c.desc}`),...P.props.filter(c=>c.lock).map(c=>`PROP ${c.name}: ${c.desc}`)].join("\n"):"";
 const bibleFrom=o=>[...o.chars.map(c=>`${c.name}: ${c.look}. Wardrobe: ${c.wardrobe||"-"}.`),...o.locs.map(l=>`Location ${l.name}: ${l.desc}`)].join("\n");
 async function serList(sel){const ns=await api("/api/series");$("sr-sel").innerHTML=(Array.isArray(ns)&&ns.length?ns:[]).map(n=>`<option>${esc(n)}</option>`).join("")||`<option value="">(belum ada serial)</option>`;
@@ -526,11 +526,29 @@ const n=ns.includes(sel)?sel:ns[0]||"";$("sr-sel").value=n;await serLoad(n)}
 async function serLoad(n){SN=n;if(!n){S=null;return serRender()}const d=await api("/api/serie?name="+encodeURIComponent(n));S=d&&!d.error?d:null;if(S){S.episodes=S.episodes||[];S.chars=S.chars||[];S.locs=S.locs||[];S.props=S.props||[]}serRender()}
 $("sr-sel").onchange=()=>serLoad($("sr-sel").value);
 const serName=()=>(prompt("Nama serial:")||"").replace(/[^\w\- ]/g,"").trim();
+const WSET=["maxScene","sbCols","sbRefs","target","voice"],WEDIT=["duck","tr","fade","ca","cv","sub","music","mv","mwf","mp"],clone=o=>JSON.parse(JSON.stringify(o));
+function worldFrom(p){const w={look:clone(p.look),chars:clone(p.chars),locs:clone(p.locs),props:clone(p.props),imgwf:p.imgwf,sbwf:p.sbwf,prod:clone(p.prod),lang:p.dev.lang,styleThumbs:clone(p.styleThumbs||{}),edit:{}};
+WSET.forEach(k=>w[k]=p[k]);WEDIT.forEach(k=>w.edit[k]=p.edit[k]);["chars","locs","props"].forEach(k=>w[k].forEach(x=>delete x.lock));return w}
+function worldSet(b,w){b.look=Object.assign(b.look,clone(w.look||{}));b.imgwf=w.imgwf||"";b.sbwf=w.sbwf||null;b.prod=Object.assign(b.prod,clone(w.prod||{}));b.styleThumbs=clone(w.styleThumbs||{});
+WSET.forEach(k=>{if(w[k]!==undefined)b[k]=w[k]});WEDIT.forEach(k=>{if(w.edit&&w.edit[k]!==undefined)b.edit[k]=w.edit[k]});b.dev.lang=w.lang||b.dev.lang;b.world=w.name}
+function worldApply(b,w){worldSet(b,w);for(const k of ["chars","locs","props"])b[k]=clone(w[k]||[]).map(x=>Object.assign(x,{lock:true}))}
+async function worldGet(){const d=await api("/api/serie?name="+encodeURIComponent(P.world));if(!d||d.error){alert("Serial \""+P.world+"\" tidak ditemukan.");return null}return d}
+async function worldPush(){const d=await worldGet();if(!d||!confirm(`Simpan karakter, lokasi, properti, gaya & pengaturan proyek ini ke serial "${P.world}"? Episode/cerita lain memakainya saat dibuat atau lewat "Ambil dari serial".`))return;
+const n=worldFrom(P);for(const k of ["chars","locs","props"]){const old=d[k]||[];for(const o of n[k]){const j=old.findIndex(x=>x.id==o.id);if(j>=0)old[j]=o;else old.push(o)}d[k]=old;delete n[k]}
+const ed=Object.assign(d.edit||{},n.edit);Object.assign(d,n,{edit:ed});await api("/api/serie",{name:P.world,data:d});
+for(const k of ["chars","locs","props"])P[k].forEach(x=>x.lock=true);save();if(S&&SN==P.world)S=d;alert("Tersimpan ke serial.")}
+async function worldPull(){const d=await worldGet();if(!d||!confirm(`Ambil karakter, lokasi, properti, gaya & pengaturan terbaru dari serial "${P.world}"? Item dengan id yang sama di proyek ini diganti; script tidak berubah.`))return;
+for(const k of ["chars","locs","props"])for(const o of clone(d[k]||[])){o.lock=true;const j=P[k].findIndex(x=>x.id==o.id);if(j>=0)Object.assign(P[k][j],o);else P[k].push(o)}
+d.name=d.name||P.world;worldSet(P,d);save();renderAll()}
+async function storyMake(){const t=(prompt("Ide / judul cerita baru (karakter, lokasi, gaya & pengaturan sama dengan serial):")||"").trim();if(!t)return;
+const name=`${S.name} - ${t}`.replace(/[^\w\- ]/g,"").trim().slice(0,60),b=BLANK();b.dev=Object.assign(b.dev,{prompt:t,genre:S.genre,tone:S.tone});worldApply(b,S);
+const r=await api("/api/project",{name,data:b});if(r.error)return alert(r.error);await listProjects(name);tab("idea")}
 function serBlank(name){return {name,logline:"",genre:P.dev.genre||"",tone:P.dev.tone||"",lang:P.dev.lang,target:P.target||30,voice:P.voice,look:{},chars:[],locs:[],props:[],imgwf:"",sbwf:null,prod:{},bible:"",total:6,episodes:[]}}
 $("sr-new").onclick=async()=>{const n=serName();if(!n)return;S=serBlank(n);SN=n;await api("/api/serie",{name:n,data:S});serList(n)};
 $("sr-from").onclick=async()=>{const n=serName();if(!n)return;const c=JSON.parse(JSON.stringify(P));
-S=Object.assign(serBlank(n),{logline:(P.dev.ideas[P.dev.chosen]||{}).logline||P.dev.prompt||"",look:c.look,chars:c.chars,locs:c.locs,props:c.props,imgwf:c.imgwf,sbwf:c.sbwf,prod:c.prod});
-S.bible=bibleFrom(S);SN=n;await api("/api/serie",{name:n,data:S});serList(n)};
+S=Object.assign(serBlank(n),worldFrom(c),{logline:(P.dev.ideas[P.dev.chosen]||{}).logline||P.dev.prompt||""});
+S.bible=bibleFrom(S);SN=n;await api("/api/serie",{name:n,data:S});P.world=n;for(const k of ["chars","locs","props"])P[k].forEach(x=>x.lock=true);save();serList(n)};
+$("sr-story").onclick=()=>S?storyMake():alert("Pilih serial dulu.");
 $("sr-del").onclick=async()=>{if(!SN||!confirm("Hapus serial "+SN+"? (proyek episode tetap ada)"))return;await api("/api/serie",{name:SN,delete:1});serList()};
 $("sr-logline").oninput=()=>{S.logline=$("sr-logline").value;serSave()};$("sr-bible").oninput=()=>{S.bible=$("sr-bible").value;serSave()};
 $("sr-n").onchange=()=>{S.total=+$("sr-n").value||6;serSave()};$("sr-target").onchange=()=>{S.target=+$("sr-target").value||30;serSave()};
@@ -552,8 +570,7 @@ ${e.summary?`<div class="hint">Sebelumnya: ${esc(e.summary)}</div>`:""}
 <div class="btns">${e.project?`<button onclick="epOpen(${i})">Buka episode</button><button class="sec" onclick="epLedger(this,${i})">Buat ledger & ringkasan</button>`:`<button ${i>0&&!S.episodes[i-1].ledger?"disabled":""} title="${i>0&&!S.episodes[i-1].ledger?"Selesaikan episode sebelumnya lalu buat ledger-nya dulu":""}" onclick="epMake(${i})">Buat proyek episode</button>`}</div></div>`).join("")||`<div class="hint">Belum ada episode. Klik "Buat garis besar musim (AI)".</div>`)}
 async function epMake(i){const e=S.episodes[i],pv=S.episodes[i-1],nn=String(e.n).padStart(2,"0"),name=`${S.name} E${nn}`;
 const b=BLANK();b.dev=Object.assign(b.dev,{prompt:e.logline,genre:S.genre,tone:S.tone,lang:S.lang||b.dev.lang,ideas:[{title:e.title,logline:e.logline,hook:""}],chosen:0});
-b.target=S.target;b.voice=S.voice||b.voice;b.look=Object.assign(b.look,JSON.parse(JSON.stringify(S.look||{})));b.imgwf=S.imgwf||"";b.sbwf=S.sbwf||null;b.prod=Object.assign(b.prod,JSON.parse(JSON.stringify(S.prod||{})));
-for(const k of ["chars","locs","props"])b[k]=JSON.parse(JSON.stringify(S[k])).map(x=>Object.assign(x,{lock:true}));
+worldApply(b,S);
 b.series={name:S.name,ep:e.n,total:S.episodes.length,logline:S.logline,bible:S.bible,ledger:pv?ledgerText(pv.ledger):"",recap:pv?pv.summary||"":"",
 outline:[e.logline,e.events,e.arc].filter(Boolean).join("\n"),cliffhanger:e.cliffhanger,finale:i==S.episodes.length-1,prevFinal:pv?.final||""};
 const r=await api("/api/project",{name,data:b});if(r.error)return alert(r.error);e.project=name;serSave();await listProjects(name);tab("idea")}
@@ -568,7 +585,7 @@ let serInit=0;function serTab(){if(!serInit){serInit=1;serList(SN)}else serRende
 
 /* ================= 1. IDE */
 const DEVF=["prompt","audience","genre","tone","lang","count"];
-function devLoad(){const sr=P.series;$("d-ser").innerHTML=sr?`📺 <b>${esc(sr.name)}</b> · episode ${sr.ep}/${sr.total}${sr.finale?" (finale)":""}<br>Cliffhanger rencana: ${esc(sr.cliffhanger||"-")}`:"";DEVF.forEach(f=>$("d-"+f).value=P.dev[f]??"");$("d-storyline").value=P.story}
+function devLoad(){const sr=P.series;$("d-ser").innerHTML=(sr?`📺 <b>${esc(sr.name)}</b> · episode ${sr.ep}/${sr.total}${sr.finale?" (finale)":""}<br>Cliffhanger rencana: ${esc(sr.cliffhanger||"-")}`:P.world?`🌐 Dunia serial <b>${esc(P.world)}</b>`:"")+(P.world?`<div class="btns" style="margin:6px 0"><button class="sec sm" onclick="worldPush()" title="Simpan perubahan karakter/lokasi/gaya/pengaturan ke serial">⬆ Simpan ke serial</button><button class="sec sm" onclick="worldPull()" title="Ambil karakter/lokasi/gaya/pengaturan terbaru dari serial">⬇ Ambil dari serial</button></div>`:"");DEVF.forEach(f=>$("d-"+f).value=P.dev[f]??"");$("d-storyline").value=P.story}
 DEVF.forEach(f=>$("d-"+f).oninput=$("d-"+f).onchange=()=>{P.dev[f]=$("d-"+f).value;save()});
 $("d-storyline").oninput=()=>{P.story=$("d-storyline").value;save();n1()};
 function devRender(){$("d-ideas").innerHTML=P.dev.ideas.map((it,i)=>`<div class="it ${i==P.dev.chosen?"on":""}" onclick="devPick(${i})" style="cursor:pointer">

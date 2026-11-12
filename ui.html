@@ -351,9 +351,10 @@ setBtn("st-all",{dis:!wf||!C||!!engNeed(wf)||!stMiss,why:!wf?"Belum ada workflow
 setBtn("next3",{dis:!sc.length,why:"Belum ada scene (tahap 2)."});hint("n3",!sc.length?"Belum ada scene (tahap 2).":!P.bd?"Breakdown belum dijalankan; prompt video jadi kurang lengkap.":"");
 // 4. Storyboard
 const bMiss=sc.filter(x=>!x.board.img&&!pend(x.board)).length,bHave=sc.filter(x=>x.board.img).length;
-setBtn("sb-all",{dis:!sc.length||!sbReady()||!bMiss,why:!sc.length?"Belum ada scene (tahap 2).":sbWhy()||"Semua frame sudah ada atau sedang dibuat.",label:bMiss?`Generate semua frame (${bMiss})`:"Semua frame sudah ada"});
+const bStuck=sc.filter(x=>pend(x.board)).length;
+setBtn("sb-all",{dis:!sc.length||!sbReady()||(!bMiss&&!bStuck),why:!sc.length?"Belum ada scene (tahap 2).":sbWhy()||"Semua frame sudah ada.",label:bMiss?`Generate semua frame (${bMiss})`:bStuck?`Ulangi ${bStuck} frame yang masih diproses`:"Semua frame sudah ada",tip:!bMiss&&bStuck?"Frame ini masih berstatus 'sedang dibuat'. Klik untuk membatalkan lalu membuatnya ulang (kalau job-nya macet).":""});
 setBtn("sb-print",{dis:!bHave,why:"Belum ada gambar storyboard."});setBtn("next-sb",{dis:!sc.length,why:"Belum ada scene (tahap 2)."});
-hint("n-sb",!sc.length?"Belum ada scene (tahap 2).":bHave<sc.length?`${sc.length-bHave} scene belum punya gambar; yang ada akan jadi frame pertama video.`:"");
+hint("n-sb",!sc.length?"Belum ada scene (tahap 2).":sc.length&&sbWhy()?"⚠ "+sbWhy():bHave<sc.length?`${sc.length-bHave} scene belum punya gambar; yang ada akan jadi frame pertama video.`:"");
 // 5. Production
 const seed=!P.prod.engine,keyless=seed&&!ST.has_key,vMiss=sc.filter(x=>!x.takes.some(t=>t.file||pend(t,"file"))).length;
 setBtn("v-all",{dis:!sc.length||!vMiss||!C||keyless,why:!sc.length?"Belum ada scene.":!C?NO_C:keyless?"Seedance butuh API key akun Comfy (⚙ Pengaturan).":"Semua scene sudah punya take atau sedang dibuat.",
@@ -812,7 +813,7 @@ const DIRIMG={"left to right":"the main subject faces and moves toward frame rig
 const sbEng=()=>P.sbwf!=null?P.sbwf:(ST.has_key||!cfg.workflows.some(w=>w.kind=="image")?"":(cfg.workflows.find(w=>w.kind=="image"&&w.refs)||cfg.workflows.find(w=>w.kind=="image")).file);
 const sbCap=()=>{const e=sbEng();return e===""||e===NB?10:(cfg.workflows.find(w=>w.file==e)?.refs||0)};
 function sbFillEng(){const o=[["","Seedream cloud · pakai gambar acuan (kredit Comfy)"],[NB,"Nano Banana (Gemini) cloud · pakai gambar acuan (kredit Comfy)"],...cfg.workflows.filter(w=>w.kind=="image").map(w=>[w.file,w.label+(w.refs?` · acuan ${w.refs} gambar`:" · tanpa acuan")])];fillSel($("sb-imgwf"),o,sbEng());nanoBoxes()}
-function sbWhy(){if(!comfyReady())return NO_C;const e=sbEng();if(e===NB)return nbNeed();if(e===""){if(!ST.has_key)return "Seedream butuh API key akun Comfy (⚙ Pengaturan), atau pilih workflow lokal.";if(cfg.live!==undefined&&ST.comfy&&cfg.seedream===false)return "Node Seedream tidak ada di ComfyUI ini (update ComfyUI), atau pilih workflow lokal."}else if(!e)return "Belum ada workflow gambar.";return ""}
+function sbWhy(){if(!comfyReady())return NO_C;const e=sbEng();if(e===NB)return nbNeed();if(e===""){if(!ST.has_key)return "Seedream butuh API key akun Comfy (⚙ Pengaturan), atau pilih workflow lokal.";}else if(!e)return "Belum ada workflow gambar.";return ""}
 const sbReady=()=>!sbWhy();
 function sceneLoc(sc){return scLoc(sc)||byName(P.locs,sc.location)}
 function boardRefs(sc){const cap=P.sbRefs===false?0:sbCap();if(!cap)return [];const loc=sceneLoc(sc);
@@ -872,6 +873,7 @@ $("sb-aspect").onchange=()=>{P.prod.aspect=$("sb-aspect").value;if([...$("v-aspe
 $("sb-all").onclick=()=>busyRun($("sb-all"),"Mengantre…",async()=>{if(!(await needModels("sb")))return;
 if(P.sbRefs!==false&&sbCap()){const mc=[...new Set(P.scenes.flatMap(x=>(x.chars||[])))].map(id=>P.chars.find(c=>c.id==id)).filter(c=>c&&!c.img).map(c=>c.name),ml=[...new Set(P.scenes.map(x=>sceneLoc(x)).filter(l=>l&&!l.img).map(l=>l.name))];
 if((mc.length||ml.length)&&!confirm(`Belum ada gambar di Breakdown untuk: ${[...mc,...ml].join(", ")}.\n\nFrame yang melibatkan mereka tidak akan mirip. Lanjut tetap generate?`))return}
+if(!P.scenes.some(x=>!x.board.img&&!pend(x.board))){const ids=P.scenes.filter(x=>pend(x.board)).map(x=>x.board.job);if(ids.length)await api("/api/cancel",{ids});P.scenes.forEach(x=>{if(pend(x.board))x.board.job=""})}  // tombol "Ulangi yang masih diproses": batalkan job yang tertahan
 for(let i=0;i<P.scenes.length;i++){const b=P.scenes[i].board;if(!b.img&&!pend(b)&&!(await genBoard(i,true)))break}await poll();sbRender()});
 $("sb-print").onclick=()=>{const w=$("sb-grid").querySelectorAll("img");if(!w.length)return alert("Belum ada gambar storyboard.");window.print()};
 $("next-sb").onclick=()=>{const left=P.scenes.filter(x=>!x.board.img).length;if(left&&!confirm(`${left} scene belum punya gambar storyboard; klip itu dibuat dari teks (atau disambung dari scene sebelumnya). Lanjut?`))return;tab("prod")};

@@ -9,6 +9,9 @@ ALTERNATIVES = ["qwen2.5:7b", "gemma3:4b", "llama3.2:3b"]  # cadangan bila qwen3
 _DIRECT = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # Ollama lokal: jangan lewat proxy sistem
 PROG = {"active": False, "task": "", "stage": "", "tokens": 0, "est": 0, "pct": 0}  # progres penulisan saat ini
 CANCEL = {"on": False}  # diset dari /api/cancel: hentikan penulisan yang sedang berjalan
+# Penyedia penulis: "ollama" (lokal, gratis) atau "openai" (GPT lewat API OpenAI / endpoint kompatibel; berbayar, teks
+# ide/script dikirim ke server mereka). Diisi app.py sebelum tiap tugas.
+PROVIDER = {"name": "ollama", "key": "", "base": "https://api.openai.com/v1"}
 PULL = {"active": False, "model": "", "status": "", "done": 0, "total": 0, "error": ""}
 
 
@@ -107,6 +110,8 @@ def chat_json(base, model, system, user, schema, keep_alive="2m", timeout=900, e
     CANCEL["on"] = False
     PROG.update(active=True, task=task, stage="Memuat model AI", tokens=0, est=max(50, int(est)), pct=0)
     try:
+        if PROVIDER["name"] == "openai":
+            return _chat_openai(model, system, user, schema, min(timeout, 600))
         return _chat(base, body, timeout)
     finally:
         PROG.update(active=False, pct=100, stage="Selesai")
@@ -145,6 +150,75 @@ def _chat(base, body, timeout):
         except urllib.error.URLError:
             raise RuntimeError("Ollama tidak menyala. Pasang dari ollama.com lalu jalankan.")
     raise RuntimeError("Ollama gagal menjawab.")
+
+
+def _chat_openai(model, system, user, schema, timeout):
+    """GPT lewat /chat/completions (streaming SSE). Structured output (json_schema); bila model/endpoint menolak,
+    turun ke json_object (+ schema di prompt) dan membuang temperature."""
+    base = (PROVIDER.get("base") or "https://api.openai.com/v1").rstrip("/")
+    key = PROVIDER.get("key") or ""
+    if not key:
+        raise RuntimeError("API key OpenAI belum diisi (kotak penulis AI di kolom kiri).")
+    body = {"model": model, "stream": True, "temperature": 0.8,
+            "response_format": {"type": "json_schema", "json_schema": {"name": "hasil", "schema": schema}},
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
+    for attempt in range(4):
+        req = urllib.request.Request(base + "/chat/completions", json.dumps(body).encode(), method="POST")
+        req.add_header("Content-Type", "application/json")
+        req.add_header("Authorization", "Bearer " + key)
+        try:
+            text = []
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                for line in r:
+                    if CANCEL["on"]:
+                        raise RuntimeError("Dibatalkan")
+                    line = line.decode("utf-8", "replace").strip()
+                    if not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if data == "[DONE]":
+                        break
+                    ev = json.loads(data)
+                    if ev.get("error"):
+                        raise RuntimeError("OpenAI: " + str(ev["error"].get("message", ev["error"]))[:300])
+                    for ch in ev.get("choices") or []:
+                        piece = (ch.get("delta") or {}).get("content") or ""
+                        if piece:
+                            text.append(piece)
+                            PROG["tokens"] += 1
+                            PROG.update(stage="Menulis", pct=min(95, int(100 * PROG["tokens"] / PROG["est"])))
+            return _parse("".join(text))
+        except urllib.error.HTTPError as e:
+            msg = e.read().decode(errors="replace")
+            low = msg.lower()
+            if e.code == 400 and attempt < 3:
+                if "temperature" in low and "temperature" in body:
+                    body.pop("temperature")
+                    continue
+                if body["response_format"].get("type") == "json_schema" and ("response_format" in low or "json_schema" in low or "schema" in low):
+                    body["response_format"] = {"type": "json_object"}
+                    body["messages"][0] = {"role": "system", "content": system + "\n\nReturn ONLY a JSON object that matches this JSON schema:\n" + json.dumps(schema)}
+                    continue
+            if e.code == 401:
+                raise RuntimeError("API key OpenAI ditolak (salah atau dicabut). Periksa key di kotak penulis AI.")
+            if e.code == 404:
+                raise RuntimeError("Model '%s' tidak ada / tidak boleh dipakai akun ini. Pilih model lain." % model)
+            if e.code == 429:
+                raise RuntimeError("OpenAI: kuota/saldo habis atau terlalu sering memanggil. " + msg[:200])
+            raise RuntimeError("OpenAI menolak (%s): %s" % (e.code, msg[:300]))
+        except urllib.error.URLError as e:
+            raise RuntimeError("Tidak bisa menyambung ke OpenAI: %s" % getattr(e, "reason", e))
+    raise RuntimeError("OpenAI gagal menjawab.")
+
+
+def openai_models(key, base="https://api.openai.com/v1"):
+    """Daftar model yang boleh dipakai key ini (hanya yang cocok untuk chat teks)."""
+    req = urllib.request.Request(base.rstrip("/") + "/models")
+    req.add_header("Authorization", "Bearer " + key)
+    with urllib.request.urlopen(req, timeout=10) as r:
+        ids = sorted(m["id"] for m in json.loads(r.read().decode()).get("data", []))
+    bad = ("embedding", "whisper", "tts", "dall", "image", "audio", "realtime", "moderation", "transcribe", "search", "codex", "instruct")
+    return [i for i in ids if (i.startswith(("gpt", "o1", "o3", "o4", "chatgpt")) or "/" in i) and not any(b in i for b in bad)]
 
 
 # ---------------------------------------------------------------- tugas penulisan

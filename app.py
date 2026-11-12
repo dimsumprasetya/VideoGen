@@ -36,7 +36,7 @@ SHORT_EDGE = {"480p": 480, "720p": 768, "1080p": 1088}
 
 DEFAULT_CFG = {"app_port": 7860, "comfy_ports": [8188, 8000], "poll_seconds": 3,
                "job_timeout_seconds": 1500, "ollama_url": "http://127.0.0.1:11434", "llm_model": "",
-               "llm_keep_alive": "2m"}
+               "llm_keep_alive": "2m", "llm_provider": "ollama", "openai_model": "", "openai_base": "https://api.openai.com/v1"}
 
 MODELS = [
     {"id": "seedance-1-0-pro-fast-251015", "label": "Seedance 1.0 Pro Fast", "min_dur": 3, "audio": False},
@@ -185,6 +185,7 @@ def comfy_url():
 
 
 KEY_FILE = os.path.join(BASE, "api_key.txt")
+OPENAI_KEY_FILE = os.path.join(BASE, "openai_key.txt")  # key GPT untuk penulis ide/script (opsional)
 NODE = "ByteDanceTextToVideoNode"
 SEEDREAM = "ByteDanceSeedreamNode"  # gambar dengan gambar acuan (storyboard yang mirip karakter/lokasi Breakdown)
 I2V = "ByteDanceImageToVideoNode"  # frame pertama = frame terakhir scene sebelumnya (continuity antar klip)
@@ -200,6 +201,34 @@ def api_key():
         except OSError:
             pass
     return k
+
+
+def openai_key():
+    k = os.environ.get("OPENAI_API_KEY", "").strip()
+    if not k:
+        try:
+            with open(OPENAI_KEY_FILE, encoding="utf-8") as f:
+                k = f.read().strip()
+        except OSError:
+            pass
+    return k
+
+
+_OAI = {"t": 0, "key": "", "models": [], "err": ""}
+
+
+def openai_info():
+    """Status GPT untuk UI: key ada? daftar model (cache 5 menit; gagal = pesan, bukan error)."""
+    k = openai_key()
+    base = CFG.get("openai_base") or "https://api.openai.com/v1"
+    if k and (_OAI["key"] != k or time.time() - _OAI["t"] > 300):
+        try:
+            _OAI.update(models=llm.openai_models(k, base), err="")
+        except Exception as e:
+            _OAI.update(models=[], err=("key ditolak" if "401" in str(e) else str(e)[:120]))
+        _OAI.update(t=time.time(), key=k)
+    return {"has_key": bool(k), "models": _OAI["models"] if k else [], "err": _OAI["err"] if k else "",
+            "model": CFG.get("openai_model", ""), "base": base}
 
 
 def _combo(spec):
@@ -930,6 +959,26 @@ def llm_base():
 
 
 def llm_run(d):
+    task = {"ideas": llm.ideas, "storyline": llm.storyline, "script": llm.script,
+            "breakdown": llm.breakdown, "dialog": llm.dialog, "continuity": llm.continuity,
+            "season": llm.season, "ledger": llm.ledger}.get(d.get("task"))
+    if not task:
+        raise ValueError("Tugas LLM tidak dikenal.")
+    if CFG.get("llm_provider") == "openai":  # GPT: tanpa Ollama / pengosongan VRAM
+        model = (CFG.get("openai_model") or "").strip()
+        if not openai_key():
+            raise RuntimeError("API key OpenAI belum diisi (kotak penulis AI di kolom kiri).")
+        if not model:
+            raise RuntimeError("Pilih / ketik nama model GPT di kotak penulis AI dulu.")
+        llm.PROVIDER.update(name="openai", key=openai_key(), base=CFG.get("openai_base") or "https://api.openai.com/v1")
+        BUSY["llm"] += 1
+        try:
+            res = task("", model, d)
+        finally:
+            BUSY["llm"] -= 1
+        res["_model"] = model
+        return res
+    llm.PROVIDER.update(name="ollama")
     base = llm_base()
     model = llm.pick_model(base, CFG.get("llm_model", ""))
     if not model:
@@ -948,11 +997,6 @@ def llm_run(d):
                 http_json(cb + "/free", {"unload_models": True, "free_memory": True}, timeout=5)
             except Exception:
                 pass
-    task = {"ideas": llm.ideas, "storyline": llm.storyline, "script": llm.script,
-            "breakdown": llm.breakdown, "dialog": llm.dialog, "continuity": llm.continuity,
-            "season": llm.season, "ledger": llm.ledger}.get(d.get("task"))
-    if not task:
-        raise ValueError("Tugas LLM tidak dikenal.")
     BUSY["llm"] += 1
     try:
         res = task(base, model, d)
@@ -1218,6 +1262,9 @@ class H(BaseHTTPRequestHandler):
             st = llm.status(llm_base())
             st.update(model=llm.pick_model(llm_base(), CFG.get("llm_model", "")) if st["ok"] else "",
                       recommended=llm.RECOMMENDED, alternatives=llm.ALTERNATIVES, pull=llm.PULL, url=llm_base())
+            oa = openai_info()
+            st.update(provider=CFG.get("llm_provider", "ollama"), openai=oa)
+            st["ready"] = bool(oa["has_key"] and oa["model"]) if st["provider"] == "openai" else bool(st["ok"] and st["models"])
             self.send_json(st)
         elif u.path == "/api/llm/progress":
             self.send_json(llm.PROG)
@@ -1404,6 +1451,23 @@ class H(BaseHTTPRequestHandler):
                     raise RuntimeError("Ollama belum menyala. Pasang dari ollama.com lalu jalankan.")
                 llm.pull(llm_base(), str(d.get("model") or llm.RECOMMENDED))
                 self.send_json({"ok": True})
+            elif self.path == "/api/llm/provider":  # {provider:"ollama"|"openai", model?, base?}
+                kw = {"llm_provider": "openai" if d.get("provider") == "openai" else "ollama"}
+                if "model" in d:
+                    kw["openai_model"] = str(d.get("model") or "").strip()
+                if d.get("base"):
+                    kw["openai_base"] = str(d["base"]).strip()
+                save_cfg(**kw)
+                self.send_json({"ok": True})
+            elif self.path == "/api/openai/key":  # {key} ; kosong = hapus
+                k = str(d.get("key", "")).strip()
+                if k:
+                    with open(OPENAI_KEY_FILE, "w", encoding="utf-8") as f:
+                        f.write(k)
+                elif os.path.exists(OPENAI_KEY_FILE):
+                    os.remove(OPENAI_KEY_FILE)
+                _OAI["t"] = 0
+                self.send_json({"has_key": bool(openai_key())})
             elif self.path == "/api/llm/model":
                 save_cfg(llm_model=str(d.get("model", "")))
                 self.send_json({"ok": True})

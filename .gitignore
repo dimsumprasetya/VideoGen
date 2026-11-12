@@ -3,6 +3,7 @@ studio.log
 studio.pids
 __pycache__/
 api_key.txt
+openai_key.txt
 projects/
 cek-ollama.txt
 version.txt

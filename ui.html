@@ -321,8 +321,8 @@ document.querySelectorAll("nav [data-tab]").forEach(a=>a.onclick=()=>tab(a.datas
 function renderTab(t){({idea:devRender,scr:scrRender,bd:bdRender,sb:sbRender,prod:prodRender,edit:editRender,ser:serTab})[t]();syncButtons()}
 /* ---------------- tombol adaptif: aktif/nonaktif, label & alasan mengikuti keadaan proyek dan layanan */
 const pend=(o,fk)=>!!(o&&o.job&&!o[fk||"img"]&&!o.error);
-const llmReady=()=>!!(LLM.ok&&(LLM.models||[]).length),comfyReady=()=>!!ST.comfy;
-const NO_L="Ollama belum siap (lihat kotak Ollama di kolom kiri)",NO_C="ComfyUI belum tersambung (⚙ Pengaturan)";
+const llmReady=()=>LLM.ready!==undefined?!!LLM.ready:!!(LLM.ok&&(LLM.models||[]).length),comfyReady=()=>!!ST.comfy;
+const NO_L="Penulis AI belum siap (lihat kotak penulis AI di kolom kiri: Ollama atau GPT)",NO_C="ComfyUI belum tersambung (⚙ Pengaturan)";
 function setBtn(id,o){const b=typeof id=="string"?$(id):id;if(!b||b.dataset.busy)return;b.disabled=!!o.dis;if(o.label!=null)b.textContent=o.label;b.title=o.dis?(o.why||""):(o.tip||"")}
 /* kunci per item: klik kedua sebelum job pertama tercatat diabaikan (dulu klik ganda = job ganda) */
 const LOCKS={};async function once(key,fn){if(LOCKS[key])return false;LOCKS[key]=1;try{return await fn()}finally{delete LOCKS[key]}}
@@ -494,16 +494,26 @@ alert("Model untuk langkah ini belum lengkap.\nKlik 'Unduh model yang kurang' di
 function setModels(){modelBox($("m-wf").value,$("m-list"))}$("m-wf").onchange=setModels;
 
 /* ---------------- Ollama */
+const provSel=()=>`<select style="margin-bottom:6px" onchange="llmProv(this.value)"><option value="ollama" ${LLM.provider!="openai"?"selected":""}>Penulis: Ollama (lokal, gratis)</option><option value="openai" ${LLM.provider=="openai"?"selected":""}>Penulis: GPT (OpenAI, berbayar)</option></select><br>`;
+function gptHTML(){const oa=LLM.openai||{};
+let h=oa.has_key?(oa.err?`<b class="err">Key OpenAI bermasalah: ${esc(oa.err)}</b>`:oa.model?`<b class="okc">GPT aktif</b> · model <b>${esc(oa.model)}</b>`:`<b>Key tersimpan.</b> Pilih / ketik nama model di bawah.`):`<b class="err">API key OpenAI belum diisi</b>`;
+h+=`<div class="row" style="margin-top:6px"><input type="password" class="oakey" placeholder="${oa.has_key?"key tersimpan (isi untuk mengganti)":"sk-…"}" autocomplete="off"><button class="sm sec" style="flex:0 0 auto" onclick="oaSave(this.previousElementSibling.value)">Simpan key</button></div>`;
+h+=`<label style="margin:8px 0 2px">Model GPT</label><input list="oamodels" value="${esc(oa.model||"")}" placeholder="mis. gpt-4o-mini" onchange="oaModel(this.value)"><datalist id="oamodels">${(oa.models||[]).map(m=>`<option value="${esc(m)}">`).join("")}</datalist>`;
+return h+`<div class="hint" style="margin-top:6px">Biaya dibebankan ke akun OpenAI Anda dan teks ide/script dikirim ke OpenAI. Key disimpan di PC ini (<code>openai_key.txt</code>). Hapus key: kosongkan lalu Simpan key.</div>`}
+async function llmProv(p){await api("/api/llm/provider",{provider:p});llmStatus()}
+async function oaSave(k){const r=await api("/api/openai/key",{key:k.trim()});if(r.error)alert(r.error);llmStatus()}
+async function oaModel(m){await api("/api/llm/provider",{provider:"openai",model:m.trim()});llmStatus()}
 async function llmStatus(){LLM=await api("/api/llm/status");const pl=LLM.pull||{};let h;
-if(LLM.error||!LLM.ok)h=`<b class="err">Ollama belum menyala</b><br>Penulis ide/script/breakdown memakai Ollama (gratis, lokal). Pasang dari <b>ollama.com</b> lalu buka aplikasinya sekali.`;
+if(LLM.provider=="openai")h=gptHTML();
+else if(LLM.error||!LLM.ok)h=`<b class="err">Ollama belum menyala</b><br>Penulis ide/script/breakdown memakai Ollama (gratis, lokal). Pasang dari <b>ollama.com</b> lalu buka aplikasinya sekali.`;
 else if(!LLM.models.length)h=`<b>Ollama aktif${LLM.version?" (v"+esc(LLM.version)+")":""}, belum ada model.</b>`+(pl.active?"":`<button class="sec" style="margin-top:6px" onclick="llmPull()">Unduh ${esc(LLM.recommended)} (~5 GB)</button>`);
 else h=`<b class="okc">Ollama aktif</b> · model <select style="width:auto;padding:3px" onchange="api('/api/llm/model',{model:this.value})">${LLM.models.map(m=>`<option ${m==LLM.model?"selected":""}>${esc(m)}</option>`).join("")}</select>`;
 if(pl.active)h+=`<div style="margin-top:6px">${progHTML(pl.total?Math.round(100*pl.done/pl.total):0,`Mengunduh ${pl.model}: ${pl.status}${pl.total?" ("+(pl.done/1e9).toFixed(2)+" / "+(pl.total/1e9).toFixed(2)+" GB)":""}`)}</div>`;
 else if(pl.error)h+=`<div class="err" style="margin-top:4px">${esc(pl.error)}</div>`;
-if(LLM.ok&&!pl.active)h+=`<details style="margin-top:6px"><summary class="hint" style="cursor:pointer">Model lain / unduh manual</summary><div class="row" style="margin-top:6px"><input class="llmname" list="llmalt" value="${esc(LLM.recommended)}">
+if(LLM.ok&&!pl.active&&LLM.provider!="openai")h+=`<details style="margin-top:6px"><summary class="hint" style="cursor:pointer">Model lain / unduh manual</summary><div class="row" style="margin-top:6px"><input class="llmname" list="llmalt" value="${esc(LLM.recommended)}">
 <button class="sm sec" style="flex:0 0 auto" onclick="llmPull(this.previousElementSibling.value)">Unduh</button></div><datalist id="llmalt">${[LLM.recommended,...(LLM.alternatives||[])].map(m=>`<option value="${esc(m)}">`).join("")}</datalist>
 <div class="hint" style="margin-top:4px">Atau Command Prompt: <code>ollama pull ${esc(LLM.recommended)}</code>. Masalah? Jalankan <b>cek-ollama.bat</b>.</div></details>`;
-document.querySelectorAll(".llmbox").forEach(e=>e.innerHTML=h);syncButtons();if(pl.active)setTimeout(llmStatus,2000)}
+h=provSel()+h;document.querySelectorAll(".llmbox").forEach(e=>e.innerHTML=h);syncButtons();if(pl.active)setTimeout(llmStatus,2000)}
 async function llmPull(name){name=(typeof name=="string"&&name.trim())||LLM.recommended;document.querySelectorAll(".llmbox button").forEach(x=>{x.disabled=true;x.textContent="Memulai unduhan…"});
 const r=await api("/api/llm/pull",{model:name});if(r.error)alert(r.error);llmStatus()}
 async function llmRun(btn,msg,body){if(btn.dataset.busy)return null;btn.dataset.busy=1;const old=btn.textContent;btn.disabled=true;btn.textContent="Memulai AI…";if(msg)$(msg).textContent="";const t0=Date.now();

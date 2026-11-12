@@ -361,7 +361,7 @@ def build_graph(p, spec=None, image=None):
 
 # Seedance 2.x / 2.5 (node V3 di ComfyUI): nama kelas & input berbeda antar versi, jadi node dicari lewat /object_info
 # (nama memuat ByteDance2 / Seedance2 / ByteDance25 …) dan graph disusun dari spec node yang benar-benar terpasang.
-_S25 = {"t": 0.0, "base": "", "nodes": {}, "busy": False}
+_S25 = {"t": 0.0, "base": "", "nodes": {}, "busy": False, "found": []}
 
 
 def _s25_kind(name):
@@ -390,14 +390,18 @@ def s25_refresh(base):
         info = http_json(base + "/object_info", timeout=60)
     except Exception:
         return _S25["nodes"]
-    best = {}
+    best, found = {}, []
     for name, n in info.items():
-        if not re.search(r"(bytedance2|bytedance25|seedance2|seedance25|bytedance.?2.?5)", name, re.I):
+        if not re.search(r"(bytedance|seedance)", name, re.I) or re.search(r"seedream", name, re.I):
             continue
+        found.append(name)
+        sp = _spec_of(n)
+        by_name = bool(re.search(r"(bytedance2|bytedance25|seedance2|seedance25|bytedance.?2.?5)", name, re.I))
+        by_model = any(re.search(r"seedance[\s\-_]*2|2[\.\-_]5", str(m), re.I) for m in (sp["combos"].get("model") or []))
         k = _s25_kind(name)
-        if k and (k not in best or _s25_score(name) > _s25_score(best[k][0])):
-            best[k] = (name, _spec_of(n))
-    _S25.update(t=time.time(), base=base, nodes={k: v for k, v in best.items()})
+        if k and (by_name or by_model) and (k not in best or _s25_score(name) > _s25_score(best[k][0])):
+            best[k] = (name, sp)
+    _S25.update(t=time.time(), base=base, nodes={k: v for k, v in best.items()}, found=sorted(found)[:14])
     return _S25["nodes"]
 
 
@@ -515,6 +519,45 @@ def build_s25(p, node, spec, image):
     graph["1"] = {"class_type": node, "inputs": inputs}
     graph["2"] = {"class_type": "SaveVideo", "inputs": {"video": ["1", 0], "filename_prefix": "video/seedance25", "format": "auto", "codec": "auto"}}
     return graph
+
+
+COMFY_UPD = {"active": False, "ok": None, "msg": "", "tail": ""}
+
+
+def comfy_update_run():
+    """Perbarui ComfyUI portable (update\\update_comfyui.bat), lalu minta supervisor menyalakan ulang ComfyUI."""
+    cwd = CFG.get("comfy_cwd") or ""
+    if not cwd:
+        try:
+            cwd = comfy_detect.detect(CFG)[1] or ""
+        except Exception:
+            cwd = ""
+    bat = os.path.join(cwd, "update", "update_comfyui.bat") if cwd else ""
+    if not bat or not os.path.isfile(bat):
+        COMFY_UPD.update(active=False, ok=False, msg="ComfyUI Anda bukan paket portable (folder 'update' tidak ada). Perbarui lewat ComfyUI Manager "
+                         "(tombol Update ComfyUI) atau, di ComfyUI Desktop, menu Settings > About > Update, lalu klik 'Cek ulang'.")
+        return
+    COMFY_UPD.update(active=True, ok=None, msg="Memperbarui ComfyUI (unduh versi terbaru, ±1-3 menit)…", tail="")
+    try:
+        r = subprocess.run(["cmd", "/c", bat], cwd=os.path.dirname(bat), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, timeout=900, creationflags=NOWIN)
+        out = r.stdout.decode("utf-8", "replace")
+        try:
+            with open(os.path.join(BASE, "comfy-update.log"), "w", encoding="utf-8") as f:
+                f.write(out)
+        except OSError:
+            pass
+        tail = "\n".join([x for x in out.splitlines() if x.strip()][-6:])
+        ok = r.returncode == 0
+        if ok:
+            _SPECS.clear()
+            _S25.update(t=0.0)
+            with open(COMFY_RETRY, "w") as f:
+                f.write(str(time.time()))  # supervisor menyalakan ulang ComfyUI supaya node baru termuat
+        COMFY_UPD.update(active=False, ok=ok, tail=tail, msg="ComfyUI diperbarui. Dinyalakan ulang, tunggu ±1 menit lalu klik 'Cek ulang'." if ok
+                         else "Pembaruan gagal (kode %s). Lihat comfy-update.log." % r.returncode)
+    except Exception as e:
+        COMFY_UPD.update(active=False, ok=False, msg="Pembaruan gagal: %s" % e)
 
 
 def wf_meta(name):
@@ -1596,8 +1639,10 @@ class H(BaseHTTPRequestHandler):
             i2v = node_spec(comfy_url(), I2V)
             self.send_json({"models": model_list(spec), "aspects": cb.get("aspect_ratio") or ASPECTS,
                             "resolutions": cb.get("resolution") or RESOLUTIONS, "live": bool(spec),
-                            "seedream": bool(node_spec(comfy_url(), SEEDREAM)), "s25": {"nodes": {k: v[0] for k, v in s25_nodes(comfy_url(), wait=False).items()}, "models": s25_models(s25_nodes(comfy_url(), wait=False)), "model": CFG.get("s25_model", ""), "i2v": any(k in s25_nodes(comfy_url(), wait=False) for k in ("flf", "i2v"))}, "nano": {"node": nano_node(comfy_url())[0], "models": (nano_node(comfy_url())[1] or {}).get("combos", {}).get("model") or [], "model": CFG.get("nano_model", "")}, "i2v": bool(i2v), "i2v_models": (i2v or {}).get("combos", {}).get("model") or [],
+                            "seedream": bool(node_spec(comfy_url(), SEEDREAM)), "s25": {"found": _S25["found"], "loaded": bool(_S25["t"]), "nodes": {k: v[0] for k, v in s25_nodes(comfy_url(), wait=False).items()}, "models": s25_models(s25_nodes(comfy_url(), wait=False)), "model": CFG.get("s25_model", ""), "i2v": any(k in s25_nodes(comfy_url(), wait=False) for k in ("flf", "i2v"))}, "nano": {"node": nano_node(comfy_url())[0], "models": (nano_node(comfy_url())[1] or {}).get("combos", {}).get("model") or [], "model": CFG.get("nano_model", "")}, "i2v": bool(i2v), "i2v_models": (i2v or {}).get("combos", {}).get("model") or [],
                             "workflows": wfs})
+        elif u.path == "/api/comfy/update":
+            self.send_json(COMFY_UPD)
         elif u.path == "/api/comfy/nodes":  # diagnosis: node ComfyUI yang namanya memuat q (mis. ?q=bytedance) + inputnya
             q = (parse_qs(u.query).get("q") or ["bytedance"])[0].lower()
             cb = comfy_url()
@@ -1858,6 +1903,16 @@ class H(BaseHTTPRequestHandler):
                 if not llm.status(llm_base())["ok"]:
                     raise RuntimeError("Ollama belum menyala. Pasang dari ollama.com lalu jalankan.")
                 llm.pull(llm_base(), str(d.get("model") or llm.RECOMMENDED))
+                self.send_json({"ok": True})
+            elif self.path == "/api/s25/refresh":  # cari ulang node Seedance 2.x
+                _S25.update(t=0.0)
+                s25_nodes(comfy_url(), wait=False)
+                self.send_json({"ok": True})
+            elif self.path == "/api/comfy/update":
+                if COMFY_UPD["active"]:
+                    return self.send_json({"ok": True, **COMFY_UPD})
+                COMFY_UPD.update(active=True, ok=None, msg="Memulai pembaruan…", tail="")
+                threading.Thread(target=comfy_update_run, daemon=True).start()
                 self.send_json({"ok": True})
             elif self.path == "/api/s25/model":  # {model}
                 save_cfg(s25_model=str(d.get("model") or "").strip())

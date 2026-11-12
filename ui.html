@@ -179,7 +179,7 @@ button.sm,.btns button,nav button,.next button,.take .x{min-height:36px}button.s
 <label>Palet warna</label><input id="l-palette" placeholder="pastel orange, cream, sky blue">
 </div>
 <div class="sect"><h3>3 · Gambar referensi &amp; sketsa</h3><div class="hint">Dipakai tombol "Gambar semua" / "Sketsa semua" di kanan.</div>
-<label>Workflow gambar</label><select id="b-imgwf"></select>
+<label>Workflow gambar</label><select id="b-imgwf"></select><div class="nanobox" style="display:none"></div>
 <div class="box" id="b-models" style="display:none;margin-top:6px"></div></div>
 </div><div class="body"><div class="inner">
 <h2>Karakter <button class="sm sec" data-add="chars">+ Tambah</button><button class="sm sec" data-genall="chars">Gambar semua</button></h2><div class="grid" id="g-chars"></div>
@@ -192,7 +192,7 @@ button.sm,.btns button,nav button,.next button,.take .x{min-height:36px}button.s
 <!-- 4. STORYBOARD -->
 <div id="p-sb" class="pg"><div class="side">
 <h3>Storyboard</h3><div class="hint">Satu gambar asli per scene (satu frame = satu shot). Gambar ini otomatis jadi <b>frame pertama video</b> di tahap Production, jadi yang Anda setujui di sini yang akan bergerak.</div>
-<label>Mesin gambar</label><select id="sb-imgwf"></select><div class="hint" id="sb-eng-h" style="margin-top:4px"></div><div class="box" id="sb-models" style="display:none;margin-top:6px"></div>
+<label>Mesin gambar</label><select id="sb-imgwf"></select><div class="nanobox" style="display:none"></div><div class="hint" id="sb-eng-h" style="margin-top:4px"></div><div class="box" id="sb-models" style="display:none;margin-top:6px"></div>
 <label class="chk" style="margin-top:10px"><input type="checkbox" id="sb-useref"> Pakai gambar acuan dari Breakdown</label><div class="hint" id="sb-refinfo" style="margin-top:4px"></div>
 <div class="row"><div><label>Aspek frame</label><select id="sb-aspect"></select></div><div><label>Per baris</label><select id="sb-cols"><option value="0">Otomatis</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option></select></div></div>
 <div class="hint" id="sb-asp-h" style="margin-top:4px"></div>
@@ -345,9 +345,9 @@ hint("n2",!sc.length?(story?"Klik 'Tulis script dari storyline' di kiri.":"Story
 setBtn("b-go",{dis:!sc.length||!L,why:!sc.length?"Belum ada scene (tahap 2).":NO_L,label:P.bd?"Breakdown ulang dari script":"Breakdown dari script"});
 const wf=imgWf();
 for(const k of ["chars","locs"]){const arr=P[k],miss=arr.filter(t=>!t.img&&!pend(t)).length,b=document.querySelector(`[data-genall=${k}]`);
-if(b)setBtn(b,{dis:!wf||!C||(wf===SD&&!ST.has_key)||!miss,why:!wf?"Belum ada workflow gambar.":!C?NO_C:wf===SD&&!ST.has_key?sdNeed():!arr.length?"Belum ada item.":"Semua sudah punya gambar atau sedang dibuat.",label:"Gambar semua"+(miss?` (${miss})`:"")})}
+if(b)setBtn(b,{dis:!wf||!C||!!engNeed(wf)||!miss,why:!wf?"Belum ada workflow gambar.":!C?NO_C:engNeed(wf)?engNeed(wf):!arr.length?"Belum ada item.":"Semua sudah punya gambar atau sedang dibuat.",label:"Gambar semua"+(miss?` (${miss})`:"")})}
 const stMiss=STYLES.filter(st=>{const v=P.styleThumbs[st.id];return !(v&&v.img)&&!pend(v)}).length;
-setBtn("st-all",{dis:!wf||!C||(wf===SD&&!ST.has_key)||!stMiss,why:!wf?"Belum ada workflow gambar.":!C?NO_C:wf===SD&&!ST.has_key?sdNeed():"Semua gaya sudah punya pratinjau.",label:"Pratinjau semua"+(stMiss?` (${stMiss})`:"")});
+setBtn("st-all",{dis:!wf||!C||!!engNeed(wf)||!stMiss,why:!wf?"Belum ada workflow gambar.":!C?NO_C:engNeed(wf)?engNeed(wf):"Semua gaya sudah punya pratinjau.",label:"Pratinjau semua"+(stMiss?` (${stMiss})`:"")});
 setBtn("next3",{dis:!sc.length,why:"Belum ada scene (tahap 2)."});hint("n3",!sc.length?"Belum ada scene (tahap 2).":!P.bd?"Breakdown belum dijalankan; prompt video jadi kurang lengkap.":"");
 // 4. Storyboard
 const bMiss=sc.filter(x=>!x.board.img&&!pend(x.board)).length,bHave=sc.filter(x=>x.board.img).length;
@@ -488,7 +488,7 @@ el.innerHTML=r.models.map(m=>`<div class="${m.present?"okc":"err"}" style="word-
 async function dlModels(wf){const r=await api("/api/models/download",{workflow:wf});if(r.error)alert(r.error);setModels();tabModels()}
 /* kotak model di tahap yang memakai workflow lokal: 3 gambar, 4 video, 5 musik */
 const MBOX={bd:["b-imgwf","b-models"],sb:["sb-imgwf","sb-models"],prod:["v-engine","v-models"],edit:["e-mwf","e-models"]};
-async function tabModels(t){const m=MBOX[t||TAB];if(!m)return null;const wf=$(m[0]).value,el=$(m[1]);if(!wf||wf==SD){el.style.display="none";return null}el.style.display="block";return modelBox(wf,el)}
+async function tabModels(t){const m=MBOX[t||TAB];if(!m)return null;const wf=$(m[0]).value,el=$(m[1]);if(!wf||wf==SD||wf==NB){el.style.display="none";return null}el.style.display="block";return modelBox(wf,el)}
 async function needModels(t){const ok=await tabModels(t);if(ok!==false)return true;$(MBOX[t][1]).scrollIntoView({block:"center",behavior:"smooth"});
 alert("Model untuk langkah ini belum lengkap.\nKlik 'Unduh model yang kurang' di kotak model (sebelah kiri), tunggu sampai semua ✓, lalu ulangi.");return false}
 function setModels(){modelBox($("m-wf").value,$("m-list"))}$("m-wf").onchange=setModels;
@@ -714,11 +714,16 @@ $("next2").onclick=async()=>{if(!P.scenes.length)return alert("Belum ada scene."
 const LOOKF=["style","camera","lighting","palette"];
 function lookLoad(){LOOKF.forEach(f=>$("l-"+f).value=P.look[f]||"")}
 LOOKF.forEach(f=>$("l-"+f).oninput=()=>{P.look[f]=$("l-"+f).value;save()});
-const SD="@seedream",imgWf=()=>P.imgwf||(ST.has_key&&cfg.seedream!==false?SD:(cfg.workflows.find(w=>w.kind=="image")||{}).file||""),imgBody=w=>w===SD?{seedream:true}:{workflow:w};
-const sdNeed=()=>ST.has_key?"":"Seedream butuh API key akun Comfy (⚙ Pengaturan → API key), atau pilih workflow lokal.";
-function bdFillWf(){fillSel($("b-imgwf"),[[SD,"Seedream cloud · kualitas tinggi (kredit Comfy)"],...cfg.workflows.filter(w=>w.kind=="image").map(w=>[w.file,w.label])],imgWf());$("b-imgwf").value=imgWf()}
-$("b-imgwf").onchange=()=>{P.imgwf=$("b-imgwf").value;save();tabModels("bd")};
-$("sb-imgwf").onchange=()=>{P.sbwf=$("sb-imgwf").value;save();tabModels("sb");sbRender()};$("e-mwf").addEventListener("change",()=>tabModels("edit"));
+const SD="@seedream",imgWf=()=>P.imgwf||(ST.has_key&&cfg.seedream!==false?SD:(cfg.workflows.find(w=>w.kind=="image")||{}).file||""),imgBody=w=>w===SD?{seedream:true}:w==="@nano"?{nano:true}:{workflow:w};
+const NB="@nano",sdNeed=()=>ST.has_key?"":"Seedream butuh API key akun Comfy (⚙ Pengaturan → API key), atau pilih workflow lokal.";
+const nbNeed=()=>!ST.has_key?"Nano Banana butuh API key akun Comfy (⚙ Pengaturan → API key), atau pilih mesin lain.":(cfg.live!==undefined&&ST.comfy&&cfg.nano&&!cfg.nano.node)?"Node Nano Banana (Gemini Image) tidak ada di ComfyUI ini (update ComfyUI), atau pilih mesin lain.":"";
+const engNeed=w=>w===SD?sdNeed():w===NB?nbNeed():"";
+function nanoBoxes(){const n=cfg.nano||{},on=[$("b-imgwf").value,$("sb-imgwf").value].map(v=>v===NB);
+document.querySelectorAll(".nanobox").forEach((el,i)=>{el.style.display=on[i]&&(n.models||[]).length?"block":"none";
+el.innerHTML=`<label style="margin:6px 0 2px">Model Nano Banana</label><select onchange="cfg.nano.model=this.value;api('/api/nano/model',{model:this.value})">${(n.models||[]).map(m=>`<option ${m==(n.model||n.models[0])?"selected":""}>${esc(m)}</option>`).join("")}</select>`})}
+function bdFillWf(){fillSel($("b-imgwf"),[[SD,"Seedream cloud · kualitas tinggi (kredit Comfy)"],[NB,"Nano Banana (Gemini) · kredit Comfy"],...cfg.workflows.filter(w=>w.kind=="image").map(w=>[w.file,w.label])],imgWf());$("b-imgwf").value=imgWf();nanoBoxes()}
+$("b-imgwf").onchange=()=>{P.imgwf=$("b-imgwf").value;save();tabModels("bd");nanoBoxes()};
+$("sb-imgwf").onchange=()=>{P.sbwf=$("sb-imgwf").value;save();tabModels("sb");nanoBoxes();sbRender()};$("e-mwf").addEventListener("change",()=>tabModels("edit"));
 const byName=(arr,n)=>arr.find(x=>x.name.trim().toLowerCase()==String(n||"").trim().toLowerCase());
 async function makeBreakdown(btn){const r=await llmRun(btn,"b-msg",{task:"breakdown",storyline:P.story,scenes:P.scenes.map(toLLM),style:P.look.style,known:knownText()});if(!r)return false;
 const L=r.look||{};LOOKF.forEach(f=>{if(L[f]&&!(f=="style"&&P.look.styleId))P.look[f]=L[f]});  // gaya pilihan pengguna tidak ditimpa
@@ -737,7 +742,7 @@ const scChars=sc=>P.chars.filter(c=>(sc.chars||[]).includes(c.id)),scLoc=sc=>P.l
 function genImg(kind,i,quiet){const o=P[kind][i];return once("img"+(o.id||kind+i),()=>genImg_(kind,i,quiet))}
 async function genImg_(kind,i,quiet){const it=P[kind][i],tgt=it;const wf=imgWf();
 if(pend(tgt))return true;if(!wf){alert("Belum ada workflow gambar (folder workflows).");return false}if(!quiet&&!(await needModels("bd")))return false;
-if(wf===SD&&sdNeed()){alert(sdNeed());return false}
+if(engNeed(wf)){alert(engNeed(wf));return false}
 const r=await api("/api/generate",Object.assign({prompt:TPL[kind](it),aspect:kind=="chars"?"1:1":P.prod.aspect,resolution:"720p",duration:5,seed:-1,ref:PN+"/"+kind},imgBody(wf)));
 if(r.error){alert(r.error);return false}Object.assign(tgt,{job:r.id,t:Date.now(),img:"",error:""});save();if(!quiet){await poll();bdRender()}return true}
 document.querySelectorAll("[data-genall]").forEach(b=>b.onclick=()=>busyRun(b,"Mengantre…",async()=>{const k=b.dataset.genall,arr=P[k];
@@ -771,7 +776,7 @@ const stSubject=()=>{const c=P.chars[0];return c&&c.look?`${c.name}: ${c.look}${
 function stPreview(id,quiet){return once("style"+id,()=>stPreview_(id,quiet))}
 async function stPreview_(id,quiet){const st=STYLES.find(s=>s.id==id),wf=imgWf();if(!wf){alert("Belum ada workflow gambar (folder workflows).");return false}
 if(!quiet&&!(await needModels("bd")))return false;
-if(wf===SD&&sdNeed()){alert(sdNeed());return false}
+if(engNeed(wf)){alert(engNeed(wf));return false}
 const r=await api("/api/generate",Object.assign({prompt:`${st.prompt}. ${stSubject()}. Full body character in a simple setting, vertical composition, high quality.`,aspect:"9:16",resolution:"480p",duration:5,seed:-1,ref:PN+"/style"},imgBody(wf)));
 if(r.error){alert(r.error);return false}P.styleThumbs[id]={job:r.id,t:Date.now(),img:"",error:""};save();if(!quiet){await poll();stRender()}return true}
 $("st-all").onclick=async()=>{const todo=STYLES.filter(st=>!(P.styleThumbs[st.id]||{}).img);if(!todo.length)return alert("Semua gaya sudah punya pratinjau. Untuk membuat ulang: pilih gayanya, lalu klik '▶ Buat ulang pratinjau'.");
@@ -805,9 +810,9 @@ const ANGIMG={"Eye level":"eye-level camera","High angle":"high-angle camera loo
 const DIRIMG={"left to right":"the main subject faces and moves toward frame right","right to left":"the main subject faces and moves toward frame left","toward camera":"the main subject faces the camera, approaching","away from camera":"the main subject is seen from behind, walking away"};
 /* mesin gambar storyboard: "" = Seedream cloud (acuan hingga 10 gambar), selain itu workflow lokal (acuan sesuai _studio.refs; Z-Image = tanpa acuan) */
 const sbEng=()=>P.sbwf!=null?P.sbwf:(ST.has_key||!cfg.workflows.some(w=>w.kind=="image")?"":(cfg.workflows.find(w=>w.kind=="image"&&w.refs)||cfg.workflows.find(w=>w.kind=="image")).file);
-const sbCap=()=>{const e=sbEng();return e===""?10:(cfg.workflows.find(w=>w.file==e)?.refs||0)};
-function sbFillEng(){const o=[["","Seedream cloud · pakai gambar acuan (kredit Comfy)"],...cfg.workflows.filter(w=>w.kind=="image").map(w=>[w.file,w.label+(w.refs?` · acuan ${w.refs} gambar`:" · tanpa acuan")])];fillSel($("sb-imgwf"),o,sbEng())}
-function sbWhy(){if(!comfyReady())return NO_C;const e=sbEng();if(e===""){if(!ST.has_key)return "Seedream butuh API key akun Comfy (⚙ Pengaturan), atau pilih workflow lokal.";if(cfg.live!==undefined&&ST.comfy&&cfg.seedream===false)return "Node Seedream tidak ada di ComfyUI ini (update ComfyUI), atau pilih workflow lokal."}else if(!e)return "Belum ada workflow gambar.";return ""}
+const sbCap=()=>{const e=sbEng();return e===""||e===NB?10:(cfg.workflows.find(w=>w.file==e)?.refs||0)};
+function sbFillEng(){const o=[["","Seedream cloud · pakai gambar acuan (kredit Comfy)"],[NB,"Nano Banana (Gemini) cloud · pakai gambar acuan (kredit Comfy)"],...cfg.workflows.filter(w=>w.kind=="image").map(w=>[w.file,w.label+(w.refs?` · acuan ${w.refs} gambar`:" · tanpa acuan")])];fillSel($("sb-imgwf"),o,sbEng());nanoBoxes()}
+function sbWhy(){if(!comfyReady())return NO_C;const e=sbEng();if(e===NB)return nbNeed();if(e===""){if(!ST.has_key)return "Seedream butuh API key akun Comfy (⚙ Pengaturan), atau pilih workflow lokal.";if(cfg.live!==undefined&&ST.comfy&&cfg.seedream===false)return "Node Seedream tidak ada di ComfyUI ini (update ComfyUI), atau pilih workflow lokal."}else if(!e)return "Belum ada workflow gambar.";return ""}
 const sbReady=()=>!sbWhy();
 function sceneLoc(sc){return scLoc(sc)||byName(P.locs,sc.location)}
 function boardRefs(sc){const cap=P.sbRefs===false?0:sbCap();if(!cap)return [];const loc=sceneLoc(sc);
@@ -823,7 +828,7 @@ const boardPromptOf=sc=>sc.bprompt||boardPrompt(sc);
 function genBoard(i,quiet){return once("board"+P.scenes[i].id,()=>genBoard_(i,quiet))}
 async function genBoard_(i,quiet){const sc=P.scenes[i],b=sc.board,eng=sbEng();if(pend(b))return true;const why=sbWhy();if(why){if(!quiet)alert(why);return false}
 if(!quiet&&!(await needModels("sb")))return false;
-const body={prompt:boardPromptOf(sc),aspect:P.prod.aspect,resolution:"720p",duration:5,seed:-1,ref:PN+"/board",refs:boardRefs(sc).map(x=>x.file)};if(eng==="")body.seedream=true;else body.workflow=eng;
+const body={prompt:boardPromptOf(sc),aspect:P.prod.aspect,resolution:"720p",duration:5,seed:-1,ref:PN+"/board",refs:boardRefs(sc).map(x=>x.file)};if(eng==="")body.seedream=true;else if(eng===NB)body.nano=true;else body.workflow=eng;
 const r=await api("/api/generate",body);
 if(r.error){if(!quiet)alert(r.error);else b.error=r.error;return false}Object.assign(b,{job:r.id,t:Date.now(),img:"",error:"",own:false,ratio:P.prod.aspect,refs:body.refs});save();if(!quiet){await poll();sbRender()}return true}
 async function sbUpload(i,inp){const f=inp.files[0];if(!f)return;const b=P.scenes[i].board;if(b.job&&!b.img)api("/api/cancel",{id:b.job});
@@ -857,7 +862,7 @@ $("sbp-t").textContent="Storyboard — "+PN;$("sbp-s").textContent=`${n} scene �
 sbFillEng();$("sb-useref").checked=P.sbRefs!==false;const cap=sbCap();
 const usedC=[...new Set(P.scenes.flatMap(x=>x.chars||[]))].map(id=>P.chars.find(c=>c.id==id)).filter(Boolean),usedL=[...new Set(P.scenes.map(x=>sceneLoc(x)).filter(Boolean))];
 const haveC=usedC.filter(c=>c.img).length,haveL=usedL.filter(l=>l.img).length;
-$("sb-eng-h").innerHTML=!cap?`<span class="err">Mesin ini tidak bisa memakai gambar acuan: wajah &amp; set tidak akan mirip dengan Breakdown. Pilih Seedream atau Qwen-Image-Edit.</span>`:sbEng()===""?"Seedream cloud: hingga 10 gambar acuan per frame, memakai kredit akun Comfy (~$0,03/gambar).":`Workflow lokal: hingga ${cap} gambar acuan per frame.`;
+$("sb-eng-h").innerHTML=!cap?`<span class="err">Mesin ini tidak bisa memakai gambar acuan: wajah &amp; set tidak akan mirip dengan Breakdown. Pilih Seedream atau Qwen-Image-Edit.</span>`:sbEng()===NB?"Nano Banana (Gemini) cloud: hingga 10 gambar acuan per frame, memakai kredit akun Comfy.":sbEng()===""?"Seedream cloud: hingga 10 gambar acuan per frame, memakai kredit akun Comfy (~$0,03/gambar).":`Workflow lokal: hingga ${cap} gambar acuan per frame.`;
 $("sb-refinfo").innerHTML=P.sbRefs===false?"Acuan dimatikan: gambar dibuat dari teks saja.":!cap?"":`Acuan di Breakdown: karakter ${haveC}/${usedC.length}, lokasi ${haveL}/${usedL.length} sudah bergambar.${haveC<usedC.length||haveL<usedL.length?` <span style="color:var(--warn)">Buat gambar yang kurang di tab Breakdown dulu supaya frame mirip.</span>`:""}`;
 const old=P.scenes.filter(x=>x.board.img&&x.board.ratio&&x.board.ratio!=P.prod.aspect).length;$("sb-asp-h").textContent=old?`${old} gambar dibuat dengan aspek lain: generate ulang agar cocok.`:"";
 syncButtons()}

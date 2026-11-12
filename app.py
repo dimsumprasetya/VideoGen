@@ -9,7 +9,7 @@ import render
 import updater
 import remote
 import comfy_ws
-import json, os, queue, random, re, shutil, socket, subprocess, sys, threading, time, uuid
+import json, math, os, queue, random, re, shutil, socket, subprocess, sys, threading, time, uuid
 import urllib.error, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, quote
@@ -36,7 +36,7 @@ SHORT_EDGE = {"480p": 480, "720p": 768, "1080p": 1088}
 
 DEFAULT_CFG = {"app_port": 7860, "comfy_ports": [8188, 8000], "poll_seconds": 3,
                "job_timeout_seconds": 1500, "ollama_url": "http://127.0.0.1:11434", "llm_model": "",
-               "llm_keep_alive": "2m", "llm_provider": "ollama", "openai_model": "", "openai_base": "https://api.openai.com/v1"}
+               "llm_keep_alive": "2m", "llm_provider": "ollama", "nano_model": "", "openai_model": "", "openai_base": "https://api.openai.com/v1"}
 
 MODELS = [
     {"id": "seedance-1-0-pro-fast-251015", "label": "Seedance 1.0 Pro Fast", "min_dur": 3, "audio": False},
@@ -254,14 +254,18 @@ def node_spec(base, node=NODE):
     if not info:
         _SPEC.update(t=time.time(), base=base, spec=None)  # node API belum terpasang: jangan ditanya tiap request
         return None
-    names, combos = set(), {}
+    names, combos, req, defaults = set(), {}, set(), {}
     for group in ("required", "optional"):
         for name, spec in (info.get("input", {}).get(group) or {}).items():
             names.add(name)
+            if group == "required":
+                req.add(name)
             opts = _combo(spec)
             if opts:
                 combos[name] = opts
-    spec = {"names": names, "combos": combos}
+            if isinstance(spec, list) and len(spec) > 1 and isinstance(spec[1], dict) and "default" in spec[1]:
+                defaults[name] = spec[1]["default"]
+    spec = {"names": names, "combos": combos, "req": req, "defaults": defaults}
     _SPEC.update(t=time.time(), base=base, spec=spec)
     return spec
 
@@ -400,6 +404,75 @@ def build_seedream(p, refs_up, spec):
         inputs["image"] = last
     graph["1"] = {"class_type": SEEDREAM, "inputs": inputs}
     graph["2"] = {"class_type": "SaveImage", "inputs": {"images": ["1", 0], "filename_prefix": "storyboard/seedream"}}
+    return graph
+
+
+# Nano Banana (Google Gemini Image) di ComfyUI: nama kelas node berbeda antar versi ComfyUI, jadi dideteksi dari
+# /object_info (urutan = yang terbaru dulu). Input disaring/diisi menurut node yang benar-benar terpasang.
+NANO = ["GeminiNanoBanana2V2", "GeminiNanoBanana2", "GeminiImage2Node", "GeminiImageNode"]
+
+
+def nano_node(base):
+    for n in NANO:
+        s = node_spec(base, n)
+        if s:
+            return n, s
+    return "", None
+
+
+def _near_aspect(aspect, opts):
+    m = re.match(r"^(\d+):(\d+)$", str(aspect or ""))
+    if not m or not int(m.group(2)):
+        return None
+    want = math.log(int(m.group(1)) / int(m.group(2)))
+    best = None
+    for o in opts:
+        mm = re.match(r"^(\d+):(\d+)$", str(o))
+        if mm and int(mm.group(2)) and int(mm.group(1)):
+            d = abs(math.log(int(mm.group(1)) / int(mm.group(2))) - want)
+            if best is None or d < best[0]:
+                best = (d, o)
+    return best[1] if best else None
+
+
+def build_nano(p, refs_up, node, spec):
+    """Gambar dengan Nano Banana (Gemini) lewat ComfyUI; refs_up = gambar acuan (di-batch dengan ImageBatch)."""
+    combos = spec["combos"]
+    inputs = {"prompt": p["prompt"], "seed": p["seed"] if p["seed"] >= 0 else random.randint(0, 2**31 - 1)}
+    models = combos.get("model") or []
+    want = str(CFG.get("nano_model") or "")
+    if models:
+        inputs["model"] = want if want in models else models[0]
+    if combos.get("aspect_ratio"):
+        a = _near_aspect(p.get("aspect"), combos["aspect_ratio"])
+        inputs["aspect_ratio"] = a or ("auto" if "auto" in combos["aspect_ratio"] else combos["aspect_ratio"][0])
+    if combos.get("resolution"):
+        r = combos["resolution"]
+        inputs["resolution"] = "2K" if "2K" in r else r[0]
+    if combos.get("response_modalities"):
+        r = combos["response_modalities"]
+        inputs["response_modalities"] = "IMAGE" if "IMAGE" in r else r[0]
+    inputs = {k: v for k, v in inputs.items() if k in spec["names"]}
+    for k in spec.get("req", ()):  # input wajib lain yang tidak kita kenal: isi dengan nilai bawaan node
+        if k not in inputs and k not in ("images", "image", "files"):
+            if combos.get(k):
+                inputs[k] = combos[k][0]
+            elif k in spec.get("defaults", {}):
+                inputs[k] = spec["defaults"][k]
+    graph, last = {}, None
+    for k, up in enumerate(refs_up):
+        graph["r%d" % k] = {"class_type": "LoadImage", "inputs": {"image": up}}
+        if last is None:
+            last = ["r0", 0]
+        else:
+            graph["b%d" % k] = {"class_type": "ImageBatch", "inputs": {"image1": last, "image2": ["r%d" % k, 0]}}
+            last = ["b%d" % k, 0]
+    if last:
+        slot = "images" if "images" in spec["names"] else "image" if "image" in spec["names"] else ""
+        if slot:
+            inputs[slot] = last
+    graph["1"] = {"class_type": node, "inputs": inputs}
+    graph["2"] = {"class_type": "SaveImage", "inputs": {"images": ["1", 0], "filename_prefix": "storyboard/nanobanana"}}
     return graph
 
 
@@ -636,13 +709,18 @@ def run_job(job):
         if p.get("refs"):  # gambar acuan (karakter/lokasi dari Breakdown) -> folder input ComfyUI
             job["progress"] = {"pct": 0, "stage": "Mengunggah gambar acuan"}
             for f in p["refs"][:10]:
-                refs_up.append(comfy_upload(base, ref_path(f, bool(p.get("seedream")))))
+                refs_up.append(comfy_upload(base, ref_path(f, bool(p.get("seedream") or p.get("nano")))))
             chk()
         if p.get("seedream"):
             spec = node_spec(base, SEEDREAM)
             if not spec:
                 raise RuntimeError("Node %s tidak ada di ComfyUI ini (update ComfyUI). Pilih workflow gambar lokal di tab Storyboard." % SEEDREAM)
             graph = build_seedream(p, refs_up, spec)
+        elif p.get("nano"):
+            nnode, nspec = nano_node(base)
+            if not nspec:
+                raise RuntimeError("Node Nano Banana (Gemini Image) tidak ada di ComfyUI ini (update ComfyUI), atau pilih mesin gambar lain.")
+            graph = build_nano(p, refs_up, nnode, nspec)
         elif p.get("workflow"):
             graph = custom_graph(p["workflow"], dict(p, image=image, refs_up=refs_up))
         else:
@@ -935,7 +1013,7 @@ def clean_params(d):
         "audio": bool(d.get("audio")), "camera_fixed": bool(d.get("camera_fixed")),
         "workflow": wf, "ref": str(d.get("ref", ""))[:80],
         # frame pertama: file hasil (video -> frame terakhirnya, gambar -> apa adanya) atau job yang belum selesai
-        "refs": [os.path.basename(str(x)) for x in (d.get("refs") or [])][:10], "seedream": bool(d.get("seedream")),
+        "refs": [os.path.basename(str(x)) for x in (d.get("refs") or [])][:10], "seedream": bool(d.get("seedream")), "nano": bool(d.get("nano")),
         "first_file": os.path.basename(str(d.get("first_file") or "")), "first_job": str(d.get("first_job") or "")[:40],
     }
 
@@ -1214,7 +1292,7 @@ class H(BaseHTTPRequestHandler):
             i2v = node_spec(comfy_url(), I2V)
             self.send_json({"models": model_list(spec), "aspects": cb.get("aspect_ratio") or ASPECTS,
                             "resolutions": cb.get("resolution") or RESOLUTIONS, "live": bool(spec),
-                            "seedream": bool(node_spec(comfy_url(), SEEDREAM)), "i2v": bool(i2v), "i2v_models": (i2v or {}).get("combos", {}).get("model") or [],
+                            "seedream": bool(node_spec(comfy_url(), SEEDREAM)), "nano": {"node": nano_node(comfy_url())[0], "models": (nano_node(comfy_url())[1] or {}).get("combos", {}).get("model") or [], "model": CFG.get("nano_model", "")}, "i2v": bool(i2v), "i2v_models": (i2v or {}).get("combos", {}).get("model") or [],
                             "workflows": wfs})
         elif u.path == "/api/busy":
             self.send_json({"busy": busy()})
@@ -1450,6 +1528,9 @@ class H(BaseHTTPRequestHandler):
                 if not llm.status(llm_base())["ok"]:
                     raise RuntimeError("Ollama belum menyala. Pasang dari ollama.com lalu jalankan.")
                 llm.pull(llm_base(), str(d.get("model") or llm.RECOMMENDED))
+                self.send_json({"ok": True})
+            elif self.path == "/api/nano/model":  # {model}
+                save_cfg(nano_model=str(d.get("model") or "").strip())
                 self.send_json({"ok": True})
             elif self.path == "/api/llm/provider":  # {provider:"ollama"|"openai", model?, base?}
                 kw = {"llm_provider": "openai" if d.get("provider") == "openai" else "ollama"}

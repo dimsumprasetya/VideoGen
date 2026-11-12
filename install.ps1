@@ -9,6 +9,13 @@ $ProgressPreference = 'SilentlyContinue'
 $Repo = 'dimsumprasetya/VideoGen'
 $Branch = 'claude/focused-lovelace-y9fz03'
 $Dir = if ($env:SEEDANCE_DIR) { $env:SEEDANCE_DIR } else { 'C:\AI\SeedanceStudio' }
+$drv = [IO.Path]::GetPathRoot($Dir)
+if ($drv -and -not (Test-Path $drv)) {
+    $have = (Get-PSDrive -PSProvider FileSystem | ForEach-Object { $_.Name + ':' }) -join ' '
+    Write-Host "Drive $drv tidak ditemukan. Drive yang ada: $have" -ForegroundColor Red
+    Write-Host 'Colokkan SSD-nya / cek huruf drive di Explorer (This PC), lalu ulangi dengan huruf yang benar.' -ForegroundColor Yellow
+    return
+}
 $Keep = @('studio_config.json', 'api_key.txt', 'python_path.txt')
 
 function Say($m) { Write-Host $m -ForegroundColor Cyan }

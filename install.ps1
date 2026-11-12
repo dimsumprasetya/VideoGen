@@ -8,7 +8,14 @@ $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $Repo = 'dimsumprasetya/VideoGen'
 $Branch = 'claude/focused-lovelace-y9fz03'
-$Dir = if ($env:SEEDANCE_DIR) { $env:SEEDANCE_DIR } else { 'C:\AI\SeedanceStudio' }
+$Dir = $env:SEEDANCE_DIR
+if (-not $Dir) {  # tanpa pilihan: tetap di lokasi pemasangan yang sudah ada (target shortcut Desktop), selain itu C:
+    try {
+        $t0 = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path ([Environment]::GetFolderPath('Desktop')) 'Seedance Studio.lnk')).TargetPath
+        if ($t0 -and (Test-Path $t0)) { $Dir = Split-Path $t0 }
+    } catch {}
+}
+if (-not $Dir) { $Dir = 'C:\AI\SeedanceStudio' }
 $drv = [IO.Path]::GetPathRoot($Dir)
 if ($drv -and -not (Test-Path $drv)) {
     $have = (Get-PSDrive -PSProvider FileSystem | ForEach-Object { $_.Name + ':' }) -join ' '
@@ -82,7 +89,7 @@ foreach ($c in @('python', 'py')) {
     try { $p = (& $c -c "import sys;print(sys.executable)" 2>$null); if ($LASTEXITCODE -eq 0 -and $p) { $py = $p.Trim(); break } } catch {}
 }
 if (-not $py) {
-    foreach ($c in @('C:\AI\ComfyUI_windows_portable\python_embeded\python.exe', 'D:\AI\ComfyUI_windows_portable\python_embeded\python.exe')) {
+    foreach ($c in ((Get-PSDrive -PSProvider FileSystem).Root | ForEach-Object { $_ + 'AI\ComfyUI_windows_portable\python_embeded\python.exe' })) {
         if (Test-Path $c) { $py = $c; break }
     }
 }

@@ -6,8 +6,8 @@ if defined PY if exist "%PY%" goto :eof
 set "PY="
 python -c "import sys" >nul 2>&1 && set "PY=python"
 if defined PY goto :eof
-for %%E in ("C:\AI\ComfyUI_windows_portable\python_embeded\python.exe" "D:\AI\ComfyUI_windows_portable\python_embeded\python.exe") do (
-  if exist %%E if not defined PY set "PY=%%~E"
+for %%D in (C D E F G H I J) do (
+  if exist "%%D:\AI\ComfyUI_windows_portable\python_embeded\python.exe" if not defined PY set "PY=%%D:\AI\ComfyUI_windows_portable\python_embeded\python.exe"
 )
 if not defined PY (
   echo Python tidak ditemukan. Pasang Python 3 dari python.org, atau tulis path python.exe di file python_path.txt

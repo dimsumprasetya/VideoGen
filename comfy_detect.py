@@ -53,14 +53,16 @@ def candidates(cfg=None):
     c = []
     if cfg and (cfg.get("comfy_cwd") or ""):
         c.append(cfg["comfy_cwd"])
-    c += ["C:\\AI\\ComfyUI_windows_portable", "D:\\AI\\ComfyUI_windows_portable",
+    letters = [chr(x) + ":\\" for x in range(ord("C"), ord("Z") + 1) if os.path.isdir(chr(x) + ":\\")]
+    c += [d + "AI\\ComfyUI_windows_portable" for d in letters]
+    c += [
           os.path.join(local, "Programs", "ComfyUI"),
           os.path.join(local, "Programs", "@comfyorgcomfyui-electron"),
           os.path.join(HOME, "ComfyUI"), os.path.join(HOME, "Documents", "ComfyUI"),
           os.path.join(HOME, "Desktop", "ComfyUI"), os.path.join(HOME, "Downloads", "ComfyUI"),
-          "C:\\ComfyUI", "D:\\ComfyUI"]
+          ] + [d + "ComfyUI" for d in letters]
     for root in (HOME, os.path.join(HOME, "Desktop"), os.path.join(HOME, "Downloads"),
-                 os.path.join(HOME, "Documents"), "C:\\", "D:\\", "C:\\AI", "D:\\AI"):
+                 os.path.join(HOME, "Documents"), *letters, *[d + "AI" for d in letters]):
         try:
             for n in os.listdir(root):
                 if n.lower().startswith("comfyui") and os.path.isdir(os.path.join(root, n)):
@@ -72,8 +74,8 @@ def candidates(cfg=None):
 
 def detect(cfg=None):
     """(cmd, cwd) pertama yang valid, atau (None, None)."""
-    if cfg and cfg.get("comfy_cmd"):
-        return cfg["comfy_cmd"], (cfg.get("comfy_cwd") or None)
+    if cfg and cfg.get("comfy_cmd") and (not cfg.get("comfy_cwd") or os.path.isdir(cfg["comfy_cwd"])):
+        return cfg["comfy_cmd"], (cfg.get("comfy_cwd") or None)  # path usang (drive pindah) -> lanjut deteksi ulang
     for d in candidates(cfg):
         r = resolve(d)
         if r:

@@ -1421,6 +1421,23 @@ class H(BaseHTTPRequestHandler):
                             "resolutions": cb.get("resolution") or RESOLUTIONS, "live": bool(spec),
                             "seedream": bool(node_spec(comfy_url(), SEEDREAM)), "nano": {"node": nano_node(comfy_url())[0], "models": (nano_node(comfy_url())[1] or {}).get("combos", {}).get("model") or [], "model": CFG.get("nano_model", "")}, "i2v": bool(i2v), "i2v_models": (i2v or {}).get("combos", {}).get("model") or [],
                             "workflows": wfs})
+        elif u.path == "/api/comfy/nodes":  # diagnosis: node ComfyUI yang namanya memuat q (mis. ?q=bytedance) + inputnya
+            q = (parse_qs(u.query).get("q") or ["bytedance"])[0].lower()
+            cb = comfy_url()
+            out = {}
+            try:
+                info = http_json(cb + "/object_info", timeout=60) if cb else {}
+            except Exception as e:
+                info = {}
+                out["error"] = str(e)
+            for name, n in info.items():
+                if q in name.lower() or q in str(n.get("display_name", "")).lower():
+                    ins = {}
+                    for grp in ("required", "optional"):
+                        for k, v in ((n.get("input") or {}).get(grp) or {}).items():
+                            ins[k] = (grp[0] + ":" + (str(v[0])[:40] if not isinstance(v[0], list) else "COMBO " + ",".join(map(str, v[0][:6])))) if isinstance(v, list) and v else grp[0]
+                    out[name] = {"display": n.get("display_name", ""), "inputs": ins}
+            self.send_json(out)
         elif u.path == "/api/nano/spec":  # diagnosis: spec mentah node Nano Banana di ComfyUI ini
             nn, _ = nano_node(comfy_url())
             raw = {}

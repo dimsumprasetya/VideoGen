@@ -240,6 +240,20 @@ def _combo(spec):
     return None
 
 
+def _dyncombo(spec):
+    """{kunci_opsi: {"required": {...}, "optional": {...}}} bila spec adalah DynamicCombo, selain itu None."""
+    if not (isinstance(spec, list) and len(spec) > 1 and isinstance(spec[1], dict)):
+        return None
+    opts = spec[1].get("options")
+    if not (isinstance(opts, list) and opts and isinstance(opts[0], dict) and "key" in opts[0]):
+        return None
+    out = {}
+    for o in opts:
+        sub = o.get("inputs") or {}
+        out[str(o["key"])] = {"required": sub.get("required") or {}, "optional": sub.get("optional") or {}}
+    return out
+
+
 def node_spec(base, node=NODE):
     """Input node Seedance menurut ComfyUI yang terpasang: {"names": set, "combos": {nama: [opsi]}} atau None."""
     if not base:
@@ -254,18 +268,23 @@ def node_spec(base, node=NODE):
     if not info:
         _SPEC.update(t=time.time(), base=base, spec=None)  # node API belum terpasang: jangan ditanya tiap request
         return None
-    names, combos, req, defaults = set(), {}, set(), {}
+    names, combos, req, defaults, dyn = set(), {}, set(), {}, {}
     for group in ("required", "optional"):
         for name, spec in (info.get("input", {}).get(group) or {}).items():
             names.add(name)
             if group == "required":
                 req.add(name)
+            dopts = _dyncombo(spec)
+            if dopts:  # DynamicCombo (V3): tiap opsi punya input sendiri, dikirim sebagai "<nama>.<input>"
+                dyn[name] = dopts
+                combos[name] = list(dopts)
+                continue
             opts = _combo(spec)
             if opts:
                 combos[name] = opts
             if isinstance(spec, list) and len(spec) > 1 and isinstance(spec[1], dict) and "default" in spec[1]:
                 defaults[name] = spec[1]["default"]
-    spec = {"names": names, "combos": combos, "req": req, "defaults": defaults}
+    spec = {"names": names, "combos": combos, "req": req, "defaults": defaults, "dyn": dyn}
     _SPEC.update(t=time.time(), base=base, spec=spec)
     return spec
 
@@ -471,6 +490,33 @@ def build_nano(p, refs_up, node, spec):
         slot = "images" if "images" in spec["names"] else "image" if "image" in spec["names"] else ""
         if slot:
             inputs[slot] = last
+    for dname, opts in (spec.get("dyn") or {}).items():  # input milik opsi DynamicCombo terpilih -> "model.<input>"
+        sub = opts.get(str(inputs.get(dname))) or {}
+        for grp in ("required", "optional"):
+            for sname, sspec in (sub.get(grp) or {}).items():
+                key = "%s.%s" % (dname, sname)
+                kind = sspec[0] if isinstance(sspec, list) and sspec else ""
+                if kind == "IMAGE" or sname in ("images", "image"):
+                    if last:
+                        inputs[key] = last
+                    continue
+                o = _combo(sspec)
+                dflt = sspec[1].get("default") if isinstance(sspec, list) and len(sspec) > 1 and isinstance(sspec[1], dict) else None
+                val = None
+                if sname == "aspect_ratio" and o:
+                    val = _near_aspect(p.get("aspect"), o) or ("auto" if "auto" in o else o[0])
+                elif sname == "resolution" and o:
+                    val = "2K" if "2K" in o else o[0]
+                elif sname == "response_modalities" and o:
+                    val = "IMAGE" if "IMAGE" in o else o[0]
+                elif o:
+                    val = dflt if dflt in o else o[0]
+                elif dflt is not None:
+                    val = dflt
+                elif sname == "seed":
+                    val = inputs.get("seed", 0)
+                if val is not None:
+                    inputs[key] = val
     graph["1"] = {"class_type": node, "inputs": inputs}
     graph["2"] = {"class_type": "SaveImage", "inputs": {"images": ["1", 0], "filename_prefix": "storyboard/nanobanana"}}
     return graph
@@ -1294,6 +1340,15 @@ class H(BaseHTTPRequestHandler):
                             "resolutions": cb.get("resolution") or RESOLUTIONS, "live": bool(spec),
                             "seedream": bool(node_spec(comfy_url(), SEEDREAM)), "nano": {"node": nano_node(comfy_url())[0], "models": (nano_node(comfy_url())[1] or {}).get("combos", {}).get("model") or [], "model": CFG.get("nano_model", "")}, "i2v": bool(i2v), "i2v_models": (i2v or {}).get("combos", {}).get("model") or [],
                             "workflows": wfs})
+        elif u.path == "/api/nano/spec":  # diagnosis: spec mentah node Nano Banana di ComfyUI ini
+            nn, _ = nano_node(comfy_url())
+            raw = {}
+            if nn:
+                try:
+                    raw = http_json(comfy_url() + "/object_info/" + nn, timeout=10)
+                except Exception as e:
+                    raw = {"error": str(e)}
+            self.send_json({"node": nn, "info": raw})
         elif u.path == "/api/busy":
             self.send_json({"busy": busy()})
         elif u.path == "/api/status":

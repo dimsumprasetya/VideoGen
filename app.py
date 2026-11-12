@@ -476,6 +476,7 @@ def build_s25(p, node, spec, image):
             elif k in spec["defaults"]:
                 inputs[k] = spec["defaults"][k]
     img_names = [k for k, ty in spec["types"].items() if ty == "IMAGE"]
+    sub_req_img = []
     for dname, opts in (spec.get("dyn") or {}).items():  # input opsi DynamicCombo -> "model.<input>"
         sub = opts.get(str(inputs.get(dname))) or {}
         for grp in ("required", "optional"):
@@ -484,13 +485,17 @@ def build_s25(p, node, spec, image):
                 kind = sspec[0] if isinstance(sspec, list) and sspec and isinstance(sspec[0], str) else ""
                 if kind == "IMAGE":
                     img_names.append(key)
+                    if grp == "required":
+                        sub_req_img.append(key)
                     continue
                 if kind in ("VIDEO", "AUDIO") or _autogrow(sspec):
                     continue
                 o = _combo(sspec)
                 meta = sspec[1] if isinstance(sspec, list) and len(sspec) > 1 and isinstance(sspec[1], dict) else {}
                 val = None
-                if sname == "duration":
+                if sname == "prompt":  # prompt bisa berada di dalam opsi model (bukan di tingkat atas)
+                    val = inputs.get("prompt") or p["prompt"]
+                elif sname == "duration":
                     val = int(_clamp(dur, (meta.get("min"), meta.get("max"))))
                 elif sname == "resolution" and o:
                     val = want_res if want_res in o else ("720p" if "720p" in o else o[0])
@@ -514,7 +519,7 @@ def build_s25(p, node, spec, image):
         inputs[slot] = ["3", 0]
         graph["3"] = {"class_type": "LoadImage", "inputs": {"image": image}}
         for k in img_names:  # input gambar wajib lain (mis. frame akhir di node first-last): isi dengan gambar yang sama
-            if k != slot and k in spec["req"] and k not in inputs:
+            if k != slot and (k in spec["req"] or k in sub_req_img) and k not in inputs:
                 inputs[k] = ["3", 0]
     graph["1"] = {"class_type": node, "inputs": inputs}
     graph["2"] = {"class_type": "SaveVideo", "inputs": {"video": ["1", 0], "filename_prefix": "video/seedance25", "format": "auto", "codec": "auto"}}

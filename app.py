@@ -240,6 +240,20 @@ def _combo(spec):
     return None
 
 
+def _autogrow(spec):
+    """Input Autogrow (V3, jumlah input bertambah: images.image0, images.image1, …) -> {"prefix": awalan} atau None."""
+    if not (isinstance(spec, list) and spec and isinstance(spec[0], str) and "AUTOGROW" in spec[0].upper()):
+        return None
+    tpl = (spec[1].get("template") if len(spec) > 1 and isinstance(spec[1], dict) else None) or {}
+    prefix = tpl.get("prefix") if isinstance(tpl, dict) else None
+    if not prefix and isinstance(tpl, dict):
+        inner = (tpl.get("input") or tpl.get("inputs") or {})
+        inner = inner.get("required") if isinstance(inner, dict) and "required" in inner else inner
+        if isinstance(inner, dict) and inner:
+            prefix = next(iter(inner))
+    return {"prefix": str(prefix or "image")}
+
+
 def _dyncombo(spec):
     """{kunci_opsi: {"required": {...}, "optional": {...}}} bila spec adalah DynamicCombo, selain itu None."""
     if not (isinstance(spec, list) and len(spec) > 1 and isinstance(spec[1], dict)):
@@ -272,12 +286,14 @@ def node_spec(base, node=NODE):
     if not info:
         _SPEC.update(t=time.time(), base=base, spec=None)  # node API belum terpasang: jangan ditanya tiap request
         return None
-    names, combos, req, defaults, dyn = set(), {}, set(), {}, {}
+    names, combos, req, defaults, dyn, auto = set(), {}, set(), {}, {}, {}
     for group in ("required", "optional"):
         for name, spec in (info.get("input", {}).get(group) or {}).items():
             names.add(name)
             if group == "required":
                 req.add(name)
+            if _autogrow(spec):
+                auto[name] = _autogrow(spec)
             dopts = _dyncombo(spec)
             if dopts:  # DynamicCombo (V3): tiap opsi punya input sendiri, dikirim sebagai "<nama>.<input>"
                 dyn[name] = dopts
@@ -288,7 +304,7 @@ def node_spec(base, node=NODE):
                 combos[name] = opts
             if isinstance(spec, list) and len(spec) > 1 and isinstance(spec[1], dict) and "default" in spec[1]:
                 defaults[name] = spec[1]["default"]
-    spec = {"names": names, "combos": combos, "req": req, "defaults": defaults, "dyn": dyn}
+    spec = {"names": names, "combos": combos, "req": req, "defaults": defaults, "dyn": dyn, "auto": auto}
     _SPEC.update(t=time.time(), base=base, spec=spec)
     return spec
 
@@ -483,10 +499,32 @@ def build_nano(p, refs_up, node, spec):
                 inputs[k] = combos[k][0]
             elif k in spec.get("defaults", {}):
                 inputs[k] = spec["defaults"][k]
+    # cara memberi gambar acuan: "batch" (satu tensor lewat ImageBatch) atau "autogrow" (images.imageN satu per satu).
+    # Percobaan 0 = sesuai spec node; percobaan ulang (error "Tensor ... ambiguous") memakai cara lain.
+    sub_auto = {}
+    for opts in (spec.get("dyn") or {}).values():
+        for sub in opts.values():
+            for grp in ("required", "optional"):
+                for sname, sspec in (sub.get(grp) or {}).items():
+                    if _autogrow(sspec):
+                        sub_auto[sname] = _autogrow(sspec)
+    top_auto = (spec.get("auto") or {}).get("images") or (spec.get("auto") or {}).get("image") or sub_auto.get("images") or sub_auto.get("image")
+    try_n = int(p.get("nano_try") or 0)
+    if try_n == 0:
+        style = "autogrow" if top_auto else "batch"
+    elif try_n == 1:
+        style = "batch" if top_auto else "autogrow"
+    else:
+        style = "autogrow"
+    off = 1 if try_n >= 2 else 0
+    pre = (top_auto or {}).get("prefix", "image")
     graph, last = {}, None
     for k, up in enumerate(refs_up):
         graph["r%d" % k] = {"class_type": "LoadImage", "inputs": {"image": up}}
-        if last is None:
+        if style == "autogrow":
+            inputs["images.%s%d" % (pre, k + off)] = ["r%d" % k, 0]
+            inputs["model.images.%s%d" % (pre, k + off)] = ["r%d" % k, 0]
+        elif last is None:
             last = ["r0", 0]
         else:
             graph["b%d" % k] = {"class_type": "ImageBatch", "inputs": {"image1": last, "image2": ["r%d" % k, 0]}}
@@ -501,8 +539,8 @@ def build_nano(p, refs_up, node, spec):
             for sname, sspec in (sub.get(grp) or {}).items():
                 key = "%s.%s" % (dname, sname)
                 kind = sspec[0] if isinstance(sspec, list) and sspec else ""
-                if kind == "IMAGE" or sname in ("images", "image"):
-                    if last:
+                if kind == "IMAGE" or sname in ("images", "image") or _autogrow(sspec):
+                    if last and style == "batch" and not _autogrow(sspec):
                         inputs[key] = last
                     continue
                 o = _combo(sspec)
@@ -840,7 +878,10 @@ def run_job(job):
                 for m in st.get("messages", []):
                     if m and m[0] == "execution_error":
                         err = m[1].get("exception_message", "")
-                raise RuntimeError("Gagal di ComfyUI: " + (err or "unknown error")[:600])
+                        tb = [x.strip() for x in (m[1].get("traceback") or []) if str(x).strip()]
+                        if tb:  # baris terakhir jejak error: menunjukkan di mana node gagal
+                            err += " [%s] %s" % (m[1].get("node_type", ""), " / ".join(tb[-3:])[:420])
+                raise RuntimeError("Gagal di ComfyUI: " + (err or "unknown error")[:900])
             vids = find_videos(h.get("outputs", {}))
             if vids:
                 v = vids[0]
@@ -871,6 +912,12 @@ def run_job(job):
             return
         msg = str(e)
         low = msg.lower()
+        jp = job["params"]
+        if jp.get("nano") and jp.get("refs") and "tensor" in low and int(jp.get("nano_try") or 0) < 2:
+            jp["nano_try"] = int(jp.get("nano_try") or 0) + 1  # cara mengirim gambar acuan ke node Gemini ditolak: coba cara lain
+            job["note"] = "Mencoba cara lain mengirim gambar acuan ke Nano Banana…"
+            job["status"] = "queued"
+            return run_job(job)
         if any(w in low for w in ("unauthorized", "login", "api key", "401", "authenticat")):
             msg += " -> Isi API key akun Comfy di bagian Pengaturan (buat di platform.comfy.org)."
         elif "credit" in low or "balance" in low or "402" in low:

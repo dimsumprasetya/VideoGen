@@ -846,7 +846,7 @@ return (stale?`<span class="warn" style="flex-basis:100%">⚠ Gambar acuan di Br
 function sbPanel(s,i){const b=s.board,[w,h]=sbRatio();let inner;
 if(b.img)inner=`<img src="/outputs/${encodeURIComponent(b.img)}" alt="Scene ${i+1}" onclick="lbox('${esc(b.img)}')">`;
 else if(pend(b))inner=jobState(b);
-else inner=`<div>${b.error?`<div class="err" style="margin-bottom:6px">Gagal: ${esc(b.error).slice(0,140)}</div>`:""}<div>Belum ada gambar</div><button class="sm" style="margin-top:8px" ${!sbReady()?"disabled":""} title="${esc(sbWhy())}" onclick="genBoard(${i})">Generate frame</button></div>`;
+else inner=`<div>${b.error?`<details class="err" style="margin-bottom:6px;text-align:left"><summary>Gagal: ${esc(b.error).slice(0,90)}… <span class="hint">(klik: error lengkap)</span></summary><div style="user-select:all;word-break:break-word;font-size:11px;margin-top:4px">${esc(b.error)}</div></details>`:""}<div>Belum ada gambar</div><button class="sm" style="margin-top:8px" ${!sbReady()?"disabled":""} title="${esc(sbWhy())}" onclick="genBoard(${i})">Generate frame</button></div>`;
 const dl=String(s.dialog||"").trim();
 return `<div class="bp a${s.act||0}"><div class="bph"><b>${i+1}</b>${s.act?`<i class="at">Babak ${s.act}</i>`:""}<span>${esc(brief(SHOTID[s.shot]||s.shot))}</span><span>· ${esc(brief(ANGLEID[s.angle]||s.angle))}</span><span class="t">${s.duration} dtk</span></div>
 <div class="bfr" style="aspect-ratio:${w}/${h}">${inner}<span class="bsz">${esc(s.shot)}</span>${DIRARR[s.dir]?`<span class="bdir">${DIRARR[s.dir]}</span>`:""}</div>

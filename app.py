@@ -9,7 +9,7 @@ import render
 import updater
 import remote
 import comfy_ws
-import json, math, os, queue, random, re, shutil, socket, subprocess, sys, threading, time, uuid
+import hashlib, json, math, os, queue, random, re, shutil, socket, subprocess, sys, threading, time, uuid
 import urllib.error, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, quote
@@ -478,7 +478,7 @@ def _near_aspect(aspect, opts):
 def build_nano(p, refs_up, node, spec):
     """Gambar dengan Nano Banana (Gemini) lewat ComfyUI; refs_up = gambar acuan (di-batch dengan ImageBatch)."""
     combos = spec["combos"]
-    inputs = {"prompt": p["prompt"], "seed": p["seed"] if p["seed"] >= 0 else random.randint(0, 2**31 - 1)}
+    inputs = {"prompt": p["prompt"] + (" " + p["prompt_extra"] if p.get("prompt_extra") else ""), "seed": p["seed"] if p["seed"] >= 0 else random.randint(0, 2**31 - 1)}
     models = combos.get("model") or []
     want = str(CFG.get("nano_model") or "")
     if models:
@@ -510,13 +510,8 @@ def build_nano(p, refs_up, node, spec):
                         sub_auto[sname] = _autogrow(sspec)
     top_auto = (spec.get("auto") or {}).get("images") or (spec.get("auto") or {}).get("image") or sub_auto.get("images") or sub_auto.get("image")
     try_n = int(p.get("nano_try") or 0)
-    if try_n == 0:
-        style = "autogrow" if top_auto else "batch"
-    elif try_n == 1:
-        style = "batch" if top_auto else "autogrow"
-    else:
-        style = "autogrow"
-    off = 1 if try_n >= 2 else 0
+    style = "autogrow" if (top_auto and try_n == 0) else "batch"  # autogrow hanya bila spec node menyatakannya
+    off = 0
     pre = (top_auto or {}).get("prefix", "image")
     graph, last = {}, None
     for k, up in enumerate(refs_up):
@@ -563,6 +558,23 @@ def build_nano(p, refs_up, node, spec):
     graph["1"] = {"class_type": node, "inputs": inputs}
     graph["2"] = {"class_type": "SaveImage", "inputs": {"images": ["1", 0], "filename_prefix": "storyboard/nanobanana"}}
     return graph
+
+
+def ref_sheet(files):
+    """Semua acuan (kanvas persegi 1024) berjajar jadi satu gambar: dipakai bila node menolak banyak gambar sekaligus."""
+    if not has_tool("ffmpeg"):
+        return None
+    srcs = [ref_path(f, True) for f in files]
+    key = hashlib.md5("|".join(srcs).encode()).hexdigest()[:12]
+    dst = os.path.join(REFS, key + ".sheet.png")
+    if not os.path.exists(dst):
+        os.makedirs(REFS, exist_ok=True)
+        cmd = [shutil.which("ffmpeg") or "ffmpeg", "-v", "error", "-y"]
+        for s in srcs:
+            cmd += ["-i", s]
+        cmd += ["-filter_complex", "hstack=inputs=%d" % len(srcs), "-frames:v", "1", dst]
+        subprocess.run(cmd, capture_output=True, timeout=60, creationflags=NOWIN)
+    return dst if os.path.exists(dst) else None
 
 
 def ref_path(name, square):
@@ -797,8 +809,18 @@ def run_job(job):
         refs_up = []
         if p.get("refs"):  # gambar acuan (karakter/lokasi dari Breakdown) -> folder input ComfyUI
             job["progress"] = {"pct": 0, "stage": "Mengunggah gambar acuan"}
-            for f in p["refs"][:10]:
-                refs_up.append(comfy_upload(base, ref_path(f, bool(p.get("seedream") or p.get("nano")))))
+            rl = p["refs"][:10]
+            if p.get("nano") and int(p.get("nano_try") or 0) == 1 and len(rl) > 1:  # satu gambar lembar-acuan (semua acuan berjajar)
+                sheet = ref_sheet(rl)
+                if sheet:
+                    refs_up.append(comfy_upload(base, sheet))
+                    p["prompt_extra"] = ("The single reference image is a sheet of %d panels laid out left to right: panel 1 = image 1, "
+                                         "panel 2 = image 2%s." % (len(rl), ", …" if len(rl) > 2 else ""))
+            elif p.get("nano") and int(p.get("nano_try") or 0) >= 2:  # acuan pertama saja
+                rl = rl[:1]
+            if not refs_up:
+                for f in rl:
+                    refs_up.append(comfy_upload(base, ref_path(f, bool(p.get("seedream") or p.get("nano")))))
             chk()
         if p.get("seedream"):
             spec = node_spec(base, SEEDREAM)
@@ -811,7 +833,7 @@ def run_job(job):
                 raise RuntimeError("Node Nano Banana (Gemini Image) tidak ada di ComfyUI ini (update ComfyUI), atau pilih mesin gambar lain.")
             graph = build_nano(p, refs_up, nnode, nspec)
             NANO_LAST.clear()
-            NANO_LAST.update(graph={k: v for k, v in graph.items()}, refs=len(refs_up))
+            NANO_LAST.update(graph={k: v for k, v in graph.items()}, refs=len(refs_up), try_n=int(p.get("nano_try") or 0))
         elif p.get("workflow"):
             graph = custom_graph(p["workflow"], dict(p, image=image, refs_up=refs_up))
         else:
@@ -913,7 +935,7 @@ def run_job(job):
         msg = str(e)
         low = msg.lower()
         jp = job["params"]
-        if jp.get("nano") and jp.get("refs") and "tensor" in low and int(jp.get("nano_try") or 0) < 2:
+        if jp.get("nano") and jp.get("refs") and ("tensor" in low or "unexpected keyword" in low) and int(jp.get("nano_try") or 0) < 2:
             jp["nano_try"] = int(jp.get("nano_try") or 0) + 1  # cara mengirim gambar acuan ke node Gemini ditolak: coba cara lain
             job["note"] = "Mencoba cara lain mengirim gambar acuan ke Nano Banana…"
             job["status"] = "queued"
@@ -924,6 +946,8 @@ def run_job(job):
             msg += " -> Kredit akun Comfy habis/kurang."
         job["status"] = "error"
         job["error"] = msg
+        if jp.get("nano"):
+            NANO_LAST["error"] = msg
     finally:
         if prog:
             prog.close()

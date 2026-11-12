@@ -264,6 +264,10 @@ def node_spec(base, node=NODE):
     try:
         info = http_json(base + "/object_info/" + node, timeout=10).get(node)
     except Exception:
+        # ComfyUI sibuk/lambat menjawab (mis. sedang generate): jangan anggap node hilang, pakai hasil terakhir yang valid
+        if _SPEC["spec"] and _SPEC["base"] == base:
+            _SPEC["t"] = time.time() - 240  # coba lagi sebentar lagi
+            return _SPEC["spec"]
         info = None
     if not info:
         _SPEC.update(t=time.time(), base=base, spec=None)  # node API belum terpasang: jangan ditanya tiap request

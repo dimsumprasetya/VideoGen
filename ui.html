@@ -716,7 +716,7 @@ function lookLoad(){LOOKF.forEach(f=>$("l-"+f).value=P.look[f]||"")}
 LOOKF.forEach(f=>$("l-"+f).oninput=()=>{P.look[f]=$("l-"+f).value;save()});
 const SD="@seedream",imgWf=()=>P.imgwf||(ST.has_key&&cfg.seedream!==false?SD:(cfg.workflows.find(w=>w.kind=="image")||{}).file||""),imgBody=w=>w===SD?{seedream:true}:w==="@nano"?{nano:true}:{workflow:w};
 const NB="@nano",sdNeed=()=>ST.has_key?"":"Seedream butuh API key akun Comfy (⚙ Pengaturan → API key), atau pilih workflow lokal.";
-const nbNeed=()=>!ST.has_key?"Nano Banana butuh API key akun Comfy (⚙ Pengaturan → API key), atau pilih mesin lain.":(cfg.live!==undefined&&ST.comfy&&cfg.nano&&!cfg.nano.node)?"Node Nano Banana (Gemini Image) tidak ada di ComfyUI ini (update ComfyUI), atau pilih mesin lain.":"";
+const nbNeed=()=>ST.has_key?"":"Nano Banana butuh API key akun Comfy (⚙ Pengaturan → API key), atau pilih mesin lain.";  // node tidak ada → pesan jelas dari server saat generate (tombol tidak dikunci)
 const engNeed=w=>w===SD?sdNeed():w===NB?nbNeed():"";
 function nanoBoxes(){const n=cfg.nano||{},on=[$("b-imgwf").value,$("sb-imgwf").value].map(v=>v===NB);
 document.querySelectorAll(".nanobox").forEach((el,i)=>{el.style.display=on[i]&&(n.models||[]).length?"block":"none";

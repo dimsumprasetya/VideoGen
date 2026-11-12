@@ -942,6 +942,9 @@ def run_job(job):
             return run_job(job)
         if any(w in low for w in ("unauthorized", "login", "api key", "401", "authenticat")):
             msg += " -> Isi API key akun Comfy di bagian Pengaturan (buat di platform.comfy.org)."
+        elif "currently closed or temporarily unavailable" in low or "endpoint" in low and "unavailable" in low:
+            msg += (" -> Model ini sedang tidak tersedia di server ByteDance (bukan salah aplikasi). Pilih model Seedance lain di tab Production "
+                    "(mis. seedance-1-0-pro-250528 atau lite), atau ulangi beberapa menit lagi.")
         elif "credit" in low or "balance" in low or "402" in low:
             msg += " -> Kredit akun Comfy habis/kurang."
         job["status"] = "error"

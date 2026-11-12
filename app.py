@@ -428,6 +428,7 @@ def build_seedream(p, refs_up, spec):
 
 # Nano Banana (Google Gemini Image) di ComfyUI: nama kelas node berbeda antar versi ComfyUI, jadi dideteksi dari
 # /object_info (urutan = yang terbaru dulu). Input disaring/diisi menurut node yang benar-benar terpasang.
+NANO_LAST = {}  # graph Nano Banana terakhir yang dikirim (untuk diagnosis lewat /api/nano/spec)
 NANO = ["GeminiNanoBanana2V2", "GeminiNanoBanana2", "GeminiImage2Node", "GeminiImageNode"]
 
 
@@ -767,6 +768,8 @@ def run_job(job):
             if not nspec:
                 raise RuntimeError("Node Nano Banana (Gemini Image) tidak ada di ComfyUI ini (update ComfyUI), atau pilih mesin gambar lain.")
             graph = build_nano(p, refs_up, nnode, nspec)
+            NANO_LAST.clear()
+            NANO_LAST.update(graph={k: v for k, v in graph.items()}, refs=len(refs_up))
         elif p.get("workflow"):
             graph = custom_graph(p["workflow"], dict(p, image=image, refs_up=refs_up))
         else:
@@ -1348,7 +1351,7 @@ class H(BaseHTTPRequestHandler):
                     raw = http_json(comfy_url() + "/object_info/" + nn, timeout=10)
                 except Exception as e:
                     raw = {"error": str(e)}
-            self.send_json({"node": nn, "info": raw})
+            self.send_json({"node": nn, "info": raw, "last_sent": NANO_LAST})
         elif u.path == "/api/busy":
             self.send_json({"busy": busy()})
         elif u.path == "/api/status":

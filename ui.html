@@ -210,7 +210,7 @@ button.sm,.btns button,nav button,.next button,.take .x{min-height:36px}button.s
 <!-- 5. PRODUCTION -->
 <div id="p-prod" class="pg"><div class="side">
 <label style="margin-top:0">Mesin video</label><select id="v-engine"></select><div class="hint" id="v-note"></div>
-<div id="v-sd"><label>Model Seedance</label><select id="v-model"></select>
+<div id="v-sd"><label id="v-modl">Model Seedance</label><select id="v-model"></select><div class="s25box" style="display:none"></div>
 <label class="row" style="color:var(--tx);margin-top:10px" id="v-audw"><input type="checkbox" id="v-audio" style="flex:0"> Generate audio</label></div>
 <label class="row" style="color:var(--tx);margin-top:10px" id="v-spkw"><input type="checkbox" id="v-speak" style="flex:0"> Ucapkan dialog/VO di video</label><div class="hint" id="v-spkh"></div>
 <div class="row"><div><label>Aspek</label><select id="v-aspect"></select></div><div><label>Resolusi</label><select id="v-res"></select></div></div>
@@ -474,7 +474,7 @@ async function loadCfg(){const c=await api("/api/config");if(c.error)return;cons
 const wfs=k=>cfg.workflows.filter(w=>w.kind==k);
 fillSel($("m-wf"),cfg.workflows.map(w=>[w.file,w.label]),$("m-wf").value);
 bdFillWf();sbFillEng();fillSel($("sb-aspect"),cfg.aspects.map(a=>[a,a]),P.prod.aspect);fillSel($("e-mwf"),wfs("audio").map(w=>[w.file,w.label]),P.edit.mwf);
-fillSel($("v-engine"),[["","Seedance cloud (bayar kredit Comfy)"],...wfs("video").map(w=>[w.file,w.label])],P.prod.engine);
+fillSel($("v-engine"),[["","Seedance 1.x cloud (bayar kredit Comfy)"],["@s25","Seedance 2.5 cloud (bayar kredit Comfy)"],...wfs("video").map(w=>[w.file,w.label])],P.prod.s25?"@s25":P.prod.engine);s25Box();
 fillSel($("v-model"),cfg.models.map(m=>[m.id,m.label]),P.prod.model);fillSel($("v-aspect"),cfg.aspects.map(a=>[a,a]),P.prod.aspect);fillSel($("v-res"),cfg.resolutions.map(a=>[a,a]),P.prod.resolution);
 renderTab(TAB);if(TAB=="prod")prodSide();return true}
 function fillSel(el,opts,val){el.innerHTML=opts.map(([v,l])=>`<option value="${esc(v)}">${esc(l)}</option>`).join("");if(opts.some(o=>o[0]==val))el.value=val}
@@ -898,7 +898,7 @@ loc&&`Setting: ${loc.name}, ${loc.desc}.`,sc.time&&`Time of day: ${todEN(sc.time
 L.lighting&&`Lighting: ${L.lighting}, motivated by the light sources of the set and the time of day.`,L.palette&&`Color palette: ${L.palette}.`,L.camera&&`Camera language: ${L.camera}.`,
 sounds(sc,pv),speech(sc),"No on-screen text, no subtitles, no watermark."].filter(Boolean).join(" ")}
 /* dialog/VO ke prompt video bila mesinnya bisa bersuara (MiniMax H3; Seedance 1.5 + Generate audio) */
-const engAudio=()=>P.prod.engine?!!engMeta()?.audio:!!(P.prod.audio&&(cfg.models.find(x=>x.id==(P.prod.model||$("v-model").value))||{}).audio);
+const engAudio=()=>P.prod.s25?!!P.prod.audio:P.prod.engine?!!engMeta()?.audio:!!(P.prod.audio&&(cfg.models.find(x=>x.id==(P.prod.model||$("v-model").value))||{}).audio);
 function sounds(sc,pv){if(!engAudio())return "";return [sc.sound&&`Sound effects and ambience: ${sc.sound}.`,pv?.transition_out=="sound bridge"&&pv.sound&&`The sound of the previous shot (${pv.sound}) carries over the cut.`].filter(Boolean).join(" ")}
 /* jenis ucapan: "Nama: …" dialog, "Nama (OS): …" suara di luar layar, "Nama (batin): …" monolog interior, "VO/Narator: …" narasi */
 function speech(sc){if(P.prod.speak===false||!engAudio()||!(sc.dialog||"").trim())return "";const lang={"Bahasa Indonesia":"Indonesian","日本語":"Japanese"}[P.dev.lang]||P.dev.lang||"Indonesian";
@@ -909,14 +909,16 @@ if(/^(os|o\.s\.|off|luar layar)$/.test(tag))return `${who} speaks off screen (vo
 if(/^(batin|pikiran|thought|thinking|v\.?o\.?)$/.test(tag))return `${who}'s inner thoughts as a voice-over in ${lang}, lips not moving: "${t}".`;
 return `${who} says in ${lang}: "${t}".`}).join(" ")}
 const promptOf=sc=>sc.prompt||compose(sc);
-function prodLoad(){const pd=P.prod;for(const [id,v] of [["v-engine",pd.engine],["v-model",pd.model],["v-aspect",pd.aspect],["v-res",pd.resolution],["b-imgwf",P.imgwf],["sb-aspect",pd.aspect],["e-mwf",P.edit.mwf]])
+function prodLoad(){const pd=P.prod;for(const [id,v] of [["v-engine",pd.s25?"@s25":pd.engine],["v-model",pd.model],["v-aspect",pd.aspect],["v-res",pd.resolution],["b-imgwf",P.imgwf],["sb-aspect",pd.aspect],["e-mwf",P.edit.mwf]])
 if([...$(id).options].some(o=>o.value==v))$(id).value=v;}
 const engMeta=()=>cfg.workflows.find(w=>w.file==P.prod.engine);
-function prodSide(){const sd=!P.prod.engine,m=cfg.models.find(x=>x.id==$("v-model").value)||{};$("v-sd").style.display=sd?"":"none";$("v-audw").style.display=sd&&m.audio?"flex":"none";
+function s25Box(){const s=cfg.s25||{},on=!!P.prod.s25,el=document.querySelector(".s25box");$("v-modl").style.display=$("v-model").style.display=on?"none":"";if(!el)return;el.style.display=on?"block":"none";
+if(on)el.innerHTML=!Object.keys(s.nodes||{}).length?`<div class="err">Node Seedance 2.x belum terdeteksi di ComfyUI ini (update ComfyUI; atau tunggu ±1 menit lalu muat ulang). Cek: <code>/api/comfy/nodes?q=seedance</code></div>`:`<label>Model Seedance 2.x</label><select onchange="cfg.s25.model=this.value;api('/api/s25/model',{model:this.value})">${(s.models||[]).map(m=>`<option ${m==(s.model||(s.models.find(x=>/2[.\-_ ]?5/.test(x))||s.models[0]))?"selected":""}>${esc(m)}</option>`).join("")}</select><div class="hint">Node: ${esc(Object.values(s.nodes).join(", "))}</div>`}
+function prodSide(){const sd=!P.prod.engine,m=cfg.models.find(x=>x.id==$("v-model").value)||{};$("v-sd").style.display=sd?"":"none";$("v-audw").style.display=sd&&(m.audio||P.prod.s25)?"flex":"none";s25Box();
 $("v-speak").checked=P.prod.speak!==false;$("v-spkh").textContent=engAudio()?"Model ini bisa bersuara: dialog & narasi dari script dimasukkan ke prompt.":"Mesin ini tanpa suara: dialog hanya jadi subtitle di tahap 5"+(sd&&m.audio?" (centang Generate audio untuk bersuara).":".");
-$("v-audio").checked=!!P.prod.audio;$("v-note").textContent=sd?"Jalan di cloud, butuh API key + kredit Comfy (Pengaturan ⚙).":(engMeta()?.note||"");prodModels()}
+$("v-audio").checked=!!P.prod.audio;$("v-note").textContent=sd?(P.prod.s25?"Seedance 2.5 di cloud (node Partner Comfy), butuh API key + kredit Comfy (Pengaturan ⚙).":"Jalan di cloud, butuh API key + kredit Comfy (Pengaturan ⚙)."):(engMeta()?.note||"");prodModels()}
 async function prodModels(){return tabModels("prod")}
-$("v-engine").onchange=()=>{P.prod.engine=$("v-engine").value;save();prodSide();prodRender()};$("v-model").onchange=()=>{P.prod.model=$("v-model").value;save();prodSide()};
+$("v-engine").onchange=()=>{const v=$("v-engine").value;P.prod.s25=v==="@s25";P.prod.engine=P.prod.s25?"":v;save();prodSide();prodRender()};$("v-model").onchange=()=>{P.prod.model=$("v-model").value;save();prodSide()};
 $("v-audio").onchange=()=>{P.prod.audio=$("v-audio").checked;save();prodSide();prodRender()};$("v-speak").onchange=()=>{P.prod.speak=$("v-speak").checked;save();prodRender()};$("v-aspect").onchange=()=>{P.prod.aspect=$("v-aspect").value;save()};$("v-res").onchange=()=>{P.prod.resolution=$("v-res").value;save()};
 function prodRender(){
 $("v-list").innerHTML=P.scenes.map((s,i)=>`${actHead(s,i)}<div class="sc s4"><div class="c"><b>Scene ${i+1} · ${s.duration} dtk${beatTag(s)}</b><span class="hint">${esc(SHOTID[s.shot]||s.shot)} · ${esc(s.angle)} · ${esc(s.cam)}</span>
@@ -930,7 +932,7 @@ ${t.file?`${vthumb(t.file)}<label class="chk" style="margin-top:3px"><input type
 function delTake(i,k){const s=P.scenes[i],t=s.takes[k];if(!confirm(t.file?"Hapus take ini dari scene?":"Batalkan dan hapus take ini?"))return;if(t.job&&!t.file)api("/api/cancel",{id:t.job});s.takes.splice(k,1);if(s.take==t.file)s.take=s.takes.find(x=>x.file)?.file||"";save();prodRender()}
 /* continuity antar klip: frame terakhir take scene sebelumnya = frame pertama klip ini (image-to-video) */
 const CHAIN_TR=["cut","match on action","cut in"];  // aksi berlanjut di ruang yang sama
-const engFirst=()=>P.prod.engine?!!engMeta()?.first_frame:!!cfg.i2v;
+const engFirst=()=>P.prod.s25?!!(cfg.s25&&cfg.s25.i2v):P.prod.engine?!!engMeta()?.first_frame:!!cfg.i2v;
 const START=[["auto","Otomatis (gambar storyboard bila ada, selain itu sambung scene sebelumnya)"],["board","Gambar storyboard (tab 4)"],["prev","Frame terakhir scene sebelumnya"],["loc","Gambar lokasi (tahap 3)"],["none","Teks saja"],["prevep","Frame terakhir episode sebelumnya (serial)"]];
 function chainWanted(i){const s=P.scenes[i],pv=P.scenes[i-1],m=s.start||"auto";if(!pv||m=="none"||m=="loc"||m=="board"||m=="auto"&&s.board?.img)return false;
 return m=="prev"||CHAIN_TR.includes(pv.transition_out||"cut")&&locKey(pv)==locKey(s)}
@@ -947,9 +949,9 @@ const warn=bw||(cur&&chainWanted(i)&&pv?.take&&cur.from!=pv.take?`<div class="er
 if(!st)return `<span class="hint">${i?"Tidak disambung: klip":"Klip pertama"} dibuat dari teks saja${i&&!chainWanted(i)&&(s.start||"auto")=="auto"?` (transisi "${esc(trName(pv.transition_out))}"${locKey(pv)!=locKey(s)?" / lokasi berganti":""})`:""}.</span>${warn}`;
 if(st.missing)return `<span class="err">${st.missing=="prevep"?"Video final episode sebelumnya belum ada (tab Serial: Buat ledger setelah episode sebelumnya selesai).":st.missing=="board"?"Scene ini belum punya gambar storyboard (tab 4).":st.missing=="loc"?"Lokasi scene ini belum punya gambar referensi (tahap 3).":`Scene ${i} belum punya take: generate scene ${i} dulu, frame terakhirnya jadi frame pertama klip ini.`}</span>`;
 if(st.job)return `<span class="hint">Menunggu take scene ${i} selesai; frame terakhirnya jadi frame pertama klip ini.</span>`;
-const md=P.prod.model||$("v-model").value,fb=!P.prod.engine&&cfg.i2v_models?.length&&!cfg.i2v_models.includes(md)?`<div class="hint">Model ${esc(md)} tidak punya versi image-to-video; klip yang disambung memakai ${esc(cfg.i2v_models.find(m=>m.includes("fast"))||cfg.i2v_models[0])}.</div>`:"";
+const md=P.prod.model||$("v-model").value,fb=!P.prod.engine&&!P.prod.s25&&cfg.i2v_models?.length&&!cfg.i2v_models.includes(md)?`<div class="hint">Model ${esc(md)} tidak punya versi image-to-video; klip yang disambung memakai ${esc(cfg.i2v_models.find(m=>m.includes("fast"))||cfg.i2v_models[0])}.</div>`:"";
 return fb+`<div class="sfr"><img src="${st.src=="loc"||st.src=="board"?"/outputs/"+encodeURIComponent(st.file):"/api/lastframe?f="+encodeURIComponent(st.file)}" alt="" onclick="lbox('${esc(st.file)}')"><span class="hint">${st.src=="board"?`Video dimulai dari gambar storyboard scene ${i+1}`:st.src=="loc"?"Mulai dari gambar lokasi":(s.start=="prevep"?"Mulai dari frame terakhir episode sebelumnya":`Mulai dari frame terakhir take scene ${i}`)} → framing, wajah, kostum & elemen sama.</span></div>${warn}`}
-function takeBody(s){const pd=P.prod;return {prompt:promptOf(s),workflow:pd.engine,model:pd.model||$("v-model").value,aspect:pd.aspect||$("v-aspect").value,resolution:pd.resolution||$("v-res").value,duration:s.duration,seed:-1,audio:pd.audio,ref:PN+"/scene"}}
+function takeBody(s){const pd=P.prod;return {prompt:promptOf(s),workflow:pd.engine,s25:!!pd.s25,model:pd.model||$("v-model").value,aspect:pd.aspect||$("v-aspect").value,resolution:pd.resolution||$("v-res").value,duration:s.duration,seed:-1,audio:pd.audio,ref:PN+"/scene"}}
 function genTake(i,quiet){return once("take"+P.scenes[i].id,()=>genTake_(i,quiet))}
 async function genTake_(i,quiet){const s=P.scenes[i];if(!quiet&&P.prod.engine&&!(await needModels("prod")))return false;
 let st=startOf(i);if(st?.missing){if(quiet||!confirm((st.missing=="board"?"Scene ini belum punya gambar storyboard (tab 4).":st.missing=="loc"?"Lokasi scene ini belum punya gambar referensi.":`Scene ${i} belum punya take, jadi klip ini tidak bisa disambung dari frame terakhirnya.`)+"\n\nLanjut buat dari teks saja?"))return quiet?genTakeText(i):false;st=null}

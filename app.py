@@ -36,7 +36,7 @@ SHORT_EDGE = {"480p": 480, "720p": 768, "1080p": 1088}
 
 DEFAULT_CFG = {"app_port": 7860, "comfy_ports": [8188, 8000], "poll_seconds": 3,
                "job_timeout_seconds": 1500, "ollama_url": "http://127.0.0.1:11434", "llm_model": "",
-               "llm_keep_alive": "2m", "llm_provider": "ollama", "nano_model": "", "openai_model": "", "openai_base": "https://api.openai.com/v1"}
+               "llm_keep_alive": "2m", "llm_provider": "ollama", "nano_model": "", "s25_model": "", "openai_model": "", "openai_base": "https://api.openai.com/v1"}
 
 MODELS = [
     {"id": "seedance-1-0-pro-fast-251015", "label": "Seedance 1.0 Pro Fast", "min_dur": 3, "audio": False},
@@ -268,6 +268,32 @@ def _dyncombo(spec):
     return out
 
 
+def _spec_of(info):
+    """Input sebuah node (hasil /object_info) -> {"names","combos","req","defaults","dyn","auto","types","ranges"}."""
+    names, combos, req, defaults, dyn, auto, types, ranges = set(), {}, set(), {}, {}, {}, {}, {}
+    for group in ("required", "optional"):
+        for name, spec in (info.get("input", {}).get(group) or {}).items():
+            names.add(name)
+            types[name] = spec[0] if isinstance(spec, list) and spec and isinstance(spec[0], str) else "COMBO"
+            if isinstance(spec, list) and len(spec) > 1 and isinstance(spec[1], dict) and "min" in spec[1]:
+                ranges[name] = (spec[1].get("min"), spec[1].get("max"))
+            if group == "required":
+                req.add(name)
+            if _autogrow(spec):
+                auto[name] = _autogrow(spec)
+            dopts = _dyncombo(spec)
+            if dopts:  # DynamicCombo (V3): tiap opsi punya input sendiri, dikirim sebagai "<nama>.<input>"
+                dyn[name] = dopts
+                combos[name] = list(dopts)
+                continue
+            opts = _combo(spec)
+            if opts:
+                combos[name] = opts
+            if isinstance(spec, list) and len(spec) > 1 and isinstance(spec[1], dict) and "default" in spec[1]:
+                defaults[name] = spec[1]["default"]
+    return {"names": names, "combos": combos, "req": req, "defaults": defaults, "dyn": dyn, "auto": auto, "types": types, "ranges": ranges}
+
+
 def node_spec(base, node=NODE):
     """Input node Seedance menurut ComfyUI yang terpasang: {"names": set, "combos": {nama: [opsi]}} atau None."""
     if not base:
@@ -286,25 +312,7 @@ def node_spec(base, node=NODE):
     if not info:
         _SPEC.update(t=time.time(), base=base, spec=None)  # node API belum terpasang: jangan ditanya tiap request
         return None
-    names, combos, req, defaults, dyn, auto = set(), {}, set(), {}, {}, {}
-    for group in ("required", "optional"):
-        for name, spec in (info.get("input", {}).get(group) or {}).items():
-            names.add(name)
-            if group == "required":
-                req.add(name)
-            if _autogrow(spec):
-                auto[name] = _autogrow(spec)
-            dopts = _dyncombo(spec)
-            if dopts:  # DynamicCombo (V3): tiap opsi punya input sendiri, dikirim sebagai "<nama>.<input>"
-                dyn[name] = dopts
-                combos[name] = list(dopts)
-                continue
-            opts = _combo(spec)
-            if opts:
-                combos[name] = opts
-            if isinstance(spec, list) and len(spec) > 1 and isinstance(spec[1], dict) and "default" in spec[1]:
-                defaults[name] = spec[1]["default"]
-    spec = {"names": names, "combos": combos, "req": req, "defaults": defaults, "dyn": dyn, "auto": auto}
+    spec = _spec_of(info)
     _SPEC.update(t=time.time(), base=base, spec=spec)
     return spec
 
@@ -348,6 +356,164 @@ def build_graph(p, spec=None, image=None):
     }
     if image:
         graph["3"] = {"class_type": "LoadImage", "inputs": {"image": image}}
+    return graph
+
+
+# Seedance 2.x / 2.5 (node V3 di ComfyUI): nama kelas & input berbeda antar versi, jadi node dicari lewat /object_info
+# (nama memuat ByteDance2 / Seedance2 / ByteDance25 …) dan graph disusun dari spec node yang benar-benar terpasang.
+_S25 = {"t": 0.0, "base": "", "nodes": {}, "busy": False}
+
+
+def _s25_kind(name):
+    low = name.lower()
+    if "draft" in low:
+        return None
+    if "texttovideo" in low:
+        return "t2v"
+    if "firstlast" in low or "first_last" in low:
+        return "flf"
+    if "imagetovideo" in low:
+        return "i2v"
+    if "reference" in low:
+        return "ref"
+    return None
+
+
+def _s25_score(name):
+    low = name.lower()
+    return (("25" in low or "2_5" in low or "2.5" in low), "v2" in low, "v3" in low, len(low))
+
+
+def s25_refresh(base):
+    """Ambil /object_info penuh (besar) dan pilih node Seedance 2.x terbaik per jenis. Hasil di-cache 10 menit."""
+    try:
+        info = http_json(base + "/object_info", timeout=60)
+    except Exception:
+        return _S25["nodes"]
+    best = {}
+    for name, n in info.items():
+        if not re.search(r"(bytedance2|bytedance25|seedance2|seedance25|bytedance.?2.?5)", name, re.I):
+            continue
+        k = _s25_kind(name)
+        if k and (k not in best or _s25_score(name) > _s25_score(best[k][0])):
+            best[k] = (name, _spec_of(n))
+    _S25.update(t=time.time(), base=base, nodes={k: v for k, v in best.items()})
+    return _S25["nodes"]
+
+
+def s25_nodes(base, wait=True):
+    """{kind: (nama_node, spec)}; wait=False: hanya cache (refresh di thread latar) supaya /api/config tidak tertahan."""
+    if not base:
+        return {}
+    fresh = _S25["base"] == base and time.time() - _S25["t"] < 600
+    if fresh:
+        return _S25["nodes"]
+    if wait:
+        return s25_refresh(base)
+    if not _S25["busy"]:
+        _S25["busy"] = True
+
+        def bg():
+            try:
+                s25_refresh(base)
+            finally:
+                _S25["busy"] = False
+        threading.Thread(target=bg, daemon=True).start()
+    return _S25["nodes"] if _S25["base"] == base else {}
+
+
+def _clamp(v, rng):
+    try:
+        lo, hi = rng
+        if lo is not None:
+            v = max(lo, v)
+        if hi is not None:
+            v = min(hi, v)
+    except (TypeError, ValueError):
+        pass
+    return v
+
+
+def s25_models(nodes):
+    for kind in ("t2v", "flf", "i2v", "ref"):
+        if kind in nodes:
+            m = nodes[kind][1]["combos"].get("model")
+            if m:
+                return m
+    return []
+
+
+def build_s25(p, node, spec, image):
+    """Video Seedance 2.x: input diisi menurut spec node (model, durasi, resolusi, aspek, audio, frame pertama)."""
+    combos = spec["combos"]
+    models = combos.get("model") or []
+    want = str(CFG.get("s25_model") or "")
+    pick = want if want in models else next((m for m in models if re.search(r"2[\.\-_ ]?5", m)), models[0] if models else "")
+    dur = int(p.get("duration") or 5)
+    seed = p["seed"] if p["seed"] >= 0 else random.randint(0, 2**31 - 1)
+    inputs = {"prompt": p["prompt"], "seed": seed, "watermark": False}
+    if pick:
+        inputs["model"] = pick
+    want_res = str(p.get("resolution") or "720p")
+    for nm, val in (("resolution", want_res), ("aspect_ratio", p.get("aspect")), ("ratio", p.get("aspect"))):
+        o = combos.get(nm)
+        if o:
+            inputs[nm] = val if val in o else (_near_aspect(val, o) if nm != "resolution" else ("720p" if "720p" in o else o[0])) or o[0]
+    if "duration" in spec["names"]:
+        inputs["duration"] = int(_clamp(dur, spec["ranges"].get("duration")))
+    for nm in ("generate_audio", "audio"):
+        if nm in spec["names"] and spec["types"].get(nm) == "BOOLEAN":
+            inputs[nm] = bool(p.get("audio"))
+    inputs = {k: v for k, v in inputs.items() if k in spec["names"]}
+    for k in spec["req"]:  # input wajib lain yang tidak kita kenal
+        if k not in inputs and spec["types"].get(k) not in ("IMAGE", "VIDEO", "AUDIO"):
+            if combos.get(k):
+                inputs[k] = combos[k][0]
+            elif k in spec["defaults"]:
+                inputs[k] = spec["defaults"][k]
+    img_names = [k for k, ty in spec["types"].items() if ty == "IMAGE"]
+    for dname, opts in (spec.get("dyn") or {}).items():  # input opsi DynamicCombo -> "model.<input>"
+        sub = opts.get(str(inputs.get(dname))) or {}
+        for grp in ("required", "optional"):
+            for sname, sspec in (sub.get(grp) or {}).items():
+                key = "%s.%s" % (dname, sname)
+                kind = sspec[0] if isinstance(sspec, list) and sspec and isinstance(sspec[0], str) else ""
+                if kind == "IMAGE":
+                    img_names.append(key)
+                    continue
+                if kind in ("VIDEO", "AUDIO") or _autogrow(sspec):
+                    continue
+                o = _combo(sspec)
+                meta = sspec[1] if isinstance(sspec, list) and len(sspec) > 1 and isinstance(sspec[1], dict) else {}
+                val = None
+                if sname == "duration":
+                    val = int(_clamp(dur, (meta.get("min"), meta.get("max"))))
+                elif sname == "resolution" and o:
+                    val = want_res if want_res in o else ("720p" if "720p" in o else o[0])
+                elif sname in ("aspect_ratio", "ratio") and o:
+                    val = p.get("aspect") if p.get("aspect") in o else (_near_aspect(p.get("aspect"), o) or o[0])
+                elif sname in ("generate_audio", "audio") and kind == "BOOLEAN":
+                    val = bool(p.get("audio"))
+                elif sname == "seed":
+                    val = seed
+                elif o:
+                    val = meta.get("default") if meta.get("default") in o else o[0]
+                elif "default" in meta:
+                    val = meta["default"]
+                if val is not None:
+                    inputs[key] = val
+    graph = {}
+    if image:
+        slot = next((k for k in img_names if "first" in k.lower()), None) or next((k for k in img_names if k.split(".")[-1] in ("image", "images")), None) or (img_names[0] if img_names else None)
+        if not slot:
+            raise RuntimeError("Node %s tidak punya input gambar untuk frame pertama." % node)
+        inputs[slot] = ["3", 0]
+        graph["3"] = {"class_type": "LoadImage", "inputs": {"image": image}}
+        for k in img_names:  # input gambar wajib lain (mis. frame akhir di node first-last): isi dengan gambar yang sama
+            if k != slot and k in spec["req"] and k not in inputs:
+                inputs[k] = ["3", 0]
+    graph["1"] = {"class_type": node, "inputs": inputs}
+    graph["2"] = {"class_type": "SaveVideo", "inputs": {"video": ["1", 0], "filename_prefix": "video/seedance25", "format": "auto", "codec": "auto"}}
     return graph
 
 
@@ -827,6 +993,17 @@ def run_job(job):
             if not spec:
                 raise RuntimeError("Node %s tidak ada di ComfyUI ini (update ComfyUI). Pilih workflow gambar lokal di tab Storyboard." % SEEDREAM)
             graph = build_seedream(p, refs_up, spec)
+        elif p.get("s25"):
+            nodes = s25_nodes(base)
+            order = ("i2v", "flf", "ref") if image else ("t2v",)
+            kind = next((k for k in order if k in nodes), None)
+            if not kind:
+                found = ", ".join(v[0] for v in nodes.values()) or "tidak ada"
+                raise RuntimeError("Node Seedance 2.x untuk %s tidak ditemukan di ComfyUI ini (terdeteksi: %s). Update ComfyUI ke versi terbaru "
+                                   "lalu buka /api/comfy/nodes?q=seedance." % ("frame pertama (image-to-video)" if image else "teks ke video", found))
+            graph = build_s25(p, nodes[kind][0], nodes[kind][1], image)
+            NANO_LAST.clear()
+            NANO_LAST.update(graph=graph, s25_node=nodes[kind][0])
         elif p.get("nano"):
             nnode, nspec = nano_node(base)
             if not nspec:
@@ -1140,7 +1317,7 @@ def clean_params(d):
         "audio": bool(d.get("audio")), "camera_fixed": bool(d.get("camera_fixed")),
         "workflow": wf, "ref": str(d.get("ref", ""))[:80],
         # frame pertama: file hasil (video -> frame terakhirnya, gambar -> apa adanya) atau job yang belum selesai
-        "refs": [os.path.basename(str(x)) for x in (d.get("refs") or [])][:10], "seedream": bool(d.get("seedream")), "nano": bool(d.get("nano")),
+        "refs": [os.path.basename(str(x)) for x in (d.get("refs") or [])][:10], "seedream": bool(d.get("seedream")), "nano": bool(d.get("nano")), "s25": bool(d.get("s25")),
         "first_file": os.path.basename(str(d.get("first_file") or "")), "first_job": str(d.get("first_job") or "")[:40],
     }
 
@@ -1419,7 +1596,7 @@ class H(BaseHTTPRequestHandler):
             i2v = node_spec(comfy_url(), I2V)
             self.send_json({"models": model_list(spec), "aspects": cb.get("aspect_ratio") or ASPECTS,
                             "resolutions": cb.get("resolution") or RESOLUTIONS, "live": bool(spec),
-                            "seedream": bool(node_spec(comfy_url(), SEEDREAM)), "nano": {"node": nano_node(comfy_url())[0], "models": (nano_node(comfy_url())[1] or {}).get("combos", {}).get("model") or [], "model": CFG.get("nano_model", "")}, "i2v": bool(i2v), "i2v_models": (i2v or {}).get("combos", {}).get("model") or [],
+                            "seedream": bool(node_spec(comfy_url(), SEEDREAM)), "s25": {"nodes": {k: v[0] for k, v in s25_nodes(comfy_url(), wait=False).items()}, "models": s25_models(s25_nodes(comfy_url(), wait=False)), "model": CFG.get("s25_model", ""), "i2v": any(k in s25_nodes(comfy_url(), wait=False) for k in ("flf", "i2v"))}, "nano": {"node": nano_node(comfy_url())[0], "models": (nano_node(comfy_url())[1] or {}).get("combos", {}).get("model") or [], "model": CFG.get("nano_model", "")}, "i2v": bool(i2v), "i2v_models": (i2v or {}).get("combos", {}).get("model") or [],
                             "workflows": wfs})
         elif u.path == "/api/comfy/nodes":  # diagnosis: node ComfyUI yang namanya memuat q (mis. ?q=bytedance) + inputnya
             q = (parse_qs(u.query).get("q") or ["bytedance"])[0].lower()
@@ -1681,6 +1858,9 @@ class H(BaseHTTPRequestHandler):
                 if not llm.status(llm_base())["ok"]:
                     raise RuntimeError("Ollama belum menyala. Pasang dari ollama.com lalu jalankan.")
                 llm.pull(llm_base(), str(d.get("model") or llm.RECOMMENDED))
+                self.send_json({"ok": True})
+            elif self.path == "/api/s25/model":  # {model}
+                save_cfg(s25_model=str(d.get("model") or "").strip())
                 self.send_json({"ok": True})
             elif self.path == "/api/nano/model":  # {model}
                 save_cfg(nano_model=str(d.get("model") or "").strip())

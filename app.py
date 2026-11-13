@@ -438,6 +438,22 @@ def _clamp(v, rng):
     return v
 
 
+def _s25_has_last(nodes):
+    """Node first-last punya input frame akhir (di tingkat atas atau di dalam opsi model)?"""
+    if "flf" not in nodes:
+        return False
+    sp = nodes["flf"][1]
+    if any("last" in k.lower() and ty == "IMAGE" for k, ty in sp["types"].items()):
+        return True
+    for opts in (sp.get("dyn") or {}).values():
+        for sub in opts.values():
+            for grp in ("required", "optional"):
+                for sname, sspec in (sub.get(grp) or {}).items():
+                    if "last" in sname.lower() and isinstance(sspec, list) and sspec and sspec[0] == "IMAGE":
+                        return True
+    return False
+
+
 def s25_models(nodes):
     for kind in ("t2v", "flf", "i2v", "ref"):
         if kind in nodes:
@@ -447,7 +463,7 @@ def s25_models(nodes):
     return []
 
 
-def build_s25(p, node, spec, image):
+def build_s25(p, node, spec, image, last_image=None):
     """Video Seedance 2.x: input diisi menurut spec node (model, durasi, resolusi, aspek, audio, frame pertama)."""
     combos = spec["combos"]
     models = combos.get("model") or []
@@ -518,8 +534,12 @@ def build_s25(p, node, spec, image):
             raise RuntimeError("Node %s tidak punya input gambar untuk frame pertama." % node)
         inputs[slot] = ["3", 0]
         graph["3"] = {"class_type": "LoadImage", "inputs": {"image": image}}
+        lslot = next((k for k in img_names if "last" in k.lower() and k != slot), None) if last_image else None
+        if lslot:  # frame akhir (storyboard) -> input last_frame node first-last
+            inputs[lslot] = ["4", 0]
+            graph["4"] = {"class_type": "LoadImage", "inputs": {"image": last_image}}
         for k in img_names:  # input gambar wajib lain (mis. frame akhir di node first-last): isi dengan gambar yang sama
-            if k != slot and (k in spec["req"] or k in sub_req_img) and k not in inputs:
+            if k != slot and k != lslot and (k in spec["req"] or k in sub_req_img) and k not in inputs:
                 inputs[k] = ["3", 0]
     graph["1"] = {"class_type": node, "inputs": inputs}
     graph["2"] = {"class_type": "SaveVideo", "inputs": {"video": ["1", 0], "filename_prefix": "video/seedance25", "format": "auto", "codec": "auto"}}
@@ -1043,13 +1063,17 @@ def run_job(job):
             graph = build_seedream(p, refs_up, spec)
         elif p.get("s25"):
             nodes = s25_nodes(base)
-            order = ("i2v", "flf", "ref") if image else ("t2v",)
+            last_img = None
+            if image and p.get("last_file") and os.path.isfile(out_path(p["last_file"])):  # frame akhir dari storyboard
+                last_img = comfy_upload(base, out_path(p["last_file"]))
+                job["last_used"] = p["last_file"]
+            order = (("flf", "i2v", "ref") if last_img else ("i2v", "flf", "ref")) if image else ("t2v",)
             kind = next((k for k in order if k in nodes), None)
             if not kind:
                 found = ", ".join(v[0] for v in nodes.values()) or "tidak ada"
                 raise RuntimeError("Node Seedance 2.x untuk %s tidak ditemukan di ComfyUI ini (terdeteksi: %s). Update ComfyUI ke versi terbaru "
                                    "lalu buka /api/comfy/nodes?q=seedance." % ("frame pertama (image-to-video)" if image else "teks ke video", found))
-            graph = build_s25(p, nodes[kind][0], nodes[kind][1], image)
+            graph = build_s25(p, nodes[kind][0], nodes[kind][1], image, last_img)
             NANO_LAST.clear()
             NANO_LAST.update(graph=graph, s25_node=nodes[kind][0])
         elif p.get("nano"):
@@ -1365,7 +1389,7 @@ def clean_params(d):
         "audio": bool(d.get("audio")), "camera_fixed": bool(d.get("camera_fixed")),
         "workflow": wf, "ref": str(d.get("ref", ""))[:80],
         # frame pertama: file hasil (video -> frame terakhirnya, gambar -> apa adanya) atau job yang belum selesai
-        "refs": [os.path.basename(str(x)) for x in (d.get("refs") or [])][:10], "seedream": bool(d.get("seedream")), "nano": bool(d.get("nano")), "s25": bool(d.get("s25")),
+        "refs": [os.path.basename(str(x)) for x in (d.get("refs") or [])][:10], "seedream": bool(d.get("seedream")), "nano": bool(d.get("nano")), "s25": bool(d.get("s25")), "last_file": os.path.basename(str(d.get("last_file") or "")),
         "first_file": os.path.basename(str(d.get("first_file") or "")), "first_job": str(d.get("first_job") or "")[:40],
     }
 
@@ -1644,7 +1668,7 @@ class H(BaseHTTPRequestHandler):
             i2v = node_spec(comfy_url(), I2V)
             self.send_json({"models": model_list(spec), "aspects": cb.get("aspect_ratio") or ASPECTS,
                             "resolutions": cb.get("resolution") or RESOLUTIONS, "live": bool(spec),
-                            "seedream": bool(node_spec(comfy_url(), SEEDREAM)), "s25": {"found": _S25["found"], "loaded": bool(_S25["t"]), "nodes": {k: v[0] for k, v in s25_nodes(comfy_url(), wait=False).items()}, "models": s25_models(s25_nodes(comfy_url(), wait=False)), "model": CFG.get("s25_model", ""), "i2v": any(k in s25_nodes(comfy_url(), wait=False) for k in ("flf", "i2v"))}, "nano": {"node": nano_node(comfy_url())[0], "models": (nano_node(comfy_url())[1] or {}).get("combos", {}).get("model") or [], "model": CFG.get("nano_model", "")}, "i2v": bool(i2v), "i2v_models": (i2v or {}).get("combos", {}).get("model") or [],
+                            "seedream": bool(node_spec(comfy_url(), SEEDREAM)), "s25": {"found": _S25["found"], "loaded": bool(_S25["t"]), "nodes": {k: v[0] for k, v in s25_nodes(comfy_url(), wait=False).items()}, "models": s25_models(s25_nodes(comfy_url(), wait=False)), "model": CFG.get("s25_model", ""), "i2v": any(k in s25_nodes(comfy_url(), wait=False) for k in ("flf", "i2v")), "last": _s25_has_last(s25_nodes(comfy_url(), wait=False))}, "nano": {"node": nano_node(comfy_url())[0], "models": (nano_node(comfy_url())[1] or {}).get("combos", {}).get("model") or [], "model": CFG.get("nano_model", "")}, "i2v": bool(i2v), "i2v_models": (i2v or {}).get("combos", {}).get("model") or [],
                             "workflows": wfs})
         elif u.path == "/api/comfy/update":
             self.send_json(COMFY_UPD)
